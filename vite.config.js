@@ -11,10 +11,11 @@ export default defineConfig(({ mode }) => {
   const proxyTarget = env.VITE_DEV_PROXY_TARGET || "http://127.0.0.1:3000";
 
   // electron → relative paths required for file:// protocol
-  // production → GitHub Pages subpath
-  // development → root
+  // production → root URL (e.g. Hostinger); set VITE_BASE_PATH=/subdir/ for GH Pages subfolder
   const base =
-    mode === "electron" ? "./" : mode === "production" ? "/mediflow/" : "/";
+    mode === "electron"
+      ? "./"
+      : env.VITE_BASE_PATH || (mode === "production" ? "/" : "/");
 
   return {
     base,

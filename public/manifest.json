@@ -2,8 +2,8 @@
   "name": "MediFlow — بوابة المرضى",
   "short_name": "MediFlow",
   "description": "احجز مواعيدك وتابع علاجك مع عيادتك الرقمية",
-  "start_url": "/mediflow/portal",
-  "scope": "/mediflow/",
+  "start_url": "/portal",
+  "scope": "/",
   "display": "standalone",
   "orientation": "portrait-primary",
   "background_color": "#f7fafc",
@@ -13,25 +13,25 @@
   "categories": ["health", "medical"],
   "icons": [
     {
-      "src": "/mediflow/icons/icon-192.png",
+      "src": "/icons/icon-192.png",
       "sizes": "192x192",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "/mediflow/icons/icon-512.png",
+      "src": "/icons/icon-512.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "/mediflow/icons/icon-maskable-192.png",
+      "src": "/icons/icon-maskable-192.png",
       "sizes": "192x192",
       "type": "image/png",
       "purpose": "maskable"
     },
     {
-      "src": "/mediflow/icons/icon-maskable-512.png",
+      "src": "/icons/icon-maskable-512.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "maskable"
@@ -43,15 +43,15 @@
       "name": "طلب موعد جديد",
       "short_name": "حجز موعد",
       "description": "أرسل طلب موعد جديد",
-      "url": "/mediflow/portal/request",
-      "icons": [{ "src": "/mediflow/icons/icon-192.png", "sizes": "192x192" }]
+      "url": "/portal/request",
+      "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }]
     },
     {
       "name": "لوحة التحكم",
       "short_name": "لوحتي",
       "description": "تابع مواعيدك وإشعاراتك",
-      "url": "/mediflow/portal/dashboard",
-      "icons": [{ "src": "/mediflow/icons/icon-192.png", "sizes": "192x192" }]
+      "url": "/portal/dashboard",
+      "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }]
     }
   ],
   "related_applications": [],

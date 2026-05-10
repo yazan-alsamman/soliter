@@ -89,8 +89,8 @@ export function usePushNotifications() {
     if (!swRegistration || permission !== 'granted') return;
     swRegistration.showNotification('MediFlow — تذكير تجريبي', {
       body: 'لديك موعد غداً الساعة 10:00 صباحاً. نذكّرك تلقائياً.',
-      icon: '/mediflow/icons/icon-192.png',
-      badge: '/mediflow/icons/badge-96.png',
+      icon: `${import.meta.env.BASE_URL}icons/icon-192.png`,
+      badge: `${import.meta.env.BASE_URL}icons/badge-96.png`,
       dir: 'rtl',
       lang: 'ar',
       tag: 'test-demo',

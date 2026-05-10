@@ -5,8 +5,8 @@ const STATIC_CACHE  = `${CACHE_VERSION}-static`;
 const API_CACHE     = `${CACHE_VERSION}-api`;
 
 const PRECACHE_URLS = [
-  '/mediflow/',
-  '/mediflow/index.html',
+  '/',
+  '/index.html',
 ];
 
 /* ─── Install ──────────────────────────────────────────────────────────────── */
@@ -67,8 +67,8 @@ self.addEventListener('fetch', (event) => {
             url.pathname.endsWith('.png') ||
             url.pathname.endsWith('.svg') ||
             url.pathname.endsWith('.woff2') ||
-            url.pathname === '/mediflow/' ||
-            url.pathname === '/mediflow/index.html'
+            url.pathname === '/' ||
+            url.pathname === '/index.html'
           )) {
             const clone = response.clone();
             caches.open(STATIC_CACHE).then((c) => c.put(request, clone));
@@ -90,13 +90,13 @@ self.addEventListener('push', (event) => {
   const title   = data.title   || 'MediFlow — تذكير موعد';
   const body    = data.body    || 'لديك موعد قريب. اضغط للتفاصيل.';
   const tag     = data.tag     || 'mediflow-appt';
-  const url     = data.url     || '/mediflow/portal/dashboard';
+  const url     = data.url     || '/portal/dashboard';
   const urgency = data.urgency || 'normal'; // 'high' | 'normal' | 'low'
 
   const options = {
     body,
-    icon:  '/mediflow/icons/icon-192.png',
-    badge: '/mediflow/icons/badge-96.png',
+    icon:  '/icons/icon-192.png',
+    badge: '/icons/badge-96.png',
     tag,
     dir: 'rtl',
     lang: 'ar',
@@ -106,7 +106,7 @@ self.addEventListener('push', (event) => {
     vibrate: urgency === 'high' ? [300, 100, 300, 100, 300] : [200, 100, 200],
     data: { url, appointmentId: data.appointmentId },
     actions: [
-      { action: 'view',    title: 'عرض الموعد',  icon: '/mediflow/icons/icon-192.png' },
+      { action: 'view',    title: 'عرض الموعد',  icon: '/icons/icon-192.png' },
       { action: 'dismiss', title: 'لاحقاً' },
     ],
   };
@@ -120,7 +120,7 @@ self.addEventListener('notificationclick', (event) => {
 
   if (event.action === 'dismiss') return;
 
-  const targetUrl = event.notification.data?.url || '/mediflow/portal/dashboard';
+  const targetUrl = event.notification.data?.url || '/portal/dashboard';
 
   event.waitUntil(
     clients
@@ -128,7 +128,7 @@ self.addEventListener('notificationclick', (event) => {
       .then((clientList) => {
         /* Focus existing window that already has the portal open */
         const existing = clientList.find(
-          (c) => c.url.includes('/mediflow/') && 'focus' in c
+          (c) => new URL(c.url).pathname.startsWith('/portal') && 'focus' in c
         );
         if (existing) {
           existing.focus();
