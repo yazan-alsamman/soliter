@@ -1,24 +1,57 @@
-import { createContext, useContext, useMemo, useState } from "react";
-import { INVOICES } from "../data/mock.js";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { api } from "../services/apiClient.js";
+import { fmtDateInvoice } from "../data/strings.js";
+import { useAuth } from "./AuthContext.jsx";
 
 const BillingContext = createContext(null);
-
-function makeId() {
-  return `INV-${new Date().getFullYear()}-${Math.floor(
-    1000 + Math.random() * 9000
-  )}`;
-}
+const takeItems = (payload) => (Array.isArray(payload) ? payload : payload?.items || []);
+const mapInvoice = (row) => ({
+  id: row.id,
+  patient: row.patient?.name || row.patientName || "—",
+  patientId: row.patientId || null,
+  appointmentId: row.appointmentId || null,
+  date: row.createdAt ? fmtDateInvoice(row.createdAt) : "اليوم",
+  amount: Number(row.finalAmount ?? row.totalAmount ?? 0),
+  paidAmount: Number(row.totalPaid ?? (row.status === "paid" ? row.finalAmount ?? row.totalAmount : 0)),
+  balance: Number(row.balance ?? 0),
+  status: ["draft", "paid", "partial"].includes(row.status) ? row.status : "draft",
+  services: row.services || [],
+  payments: row.payments || [],
+  paymentMethod: row.payments?.[row.payments.length - 1]?.method || null,
+});
 
 export function BillingProvider({ children }) {
-  const [invoices, setInvoices] = useState(INVOICES);
+  const { isAuthenticated } = useAuth();
+  const [invoices, setInvoices] = useState([]);
+
+  useEffect(() => {
+    if (!isAuthenticated) {
+      setInvoices([]);
+      return;
+    }
+    let cancelled = false;
+    const load = async () => {
+      try {
+        // limit:100 ensures we see more than the default 50-record cap on initial load
+        const rows = await api.getInvoices({ limit: 100 });
+        if (!cancelled) setInvoices(takeItems(rows).map(mapInvoice));
+      } catch {
+        if (!cancelled) setInvoices([]);
+      }
+    };
+    load();
+    // Polling is now handled by PollingCoordinator (single 15s interval shared
+    // across all contexts — avoids thundering herd on tab focus).
+    return () => { cancelled = true; };
+  }, [isAuthenticated]);
 
   const addInvoice = (payload) => {
     const newInvoice = {
-      id: makeId(),
+      id: `local-${Date.now()}`,
       patient: payload.patient,
       date: payload.date || "اليوم",
       amount: Number(payload.amount) || 0,
-      status: payload.status || "due",
+      status: payload.status || "unpaid",
     };
     setInvoices((arr) => [newInvoice, ...arr]);
     return newInvoice;
@@ -29,53 +62,36 @@ export function BillingProvider({ children }) {
   };
 
   const ensureDraftInvoiceForAppointment = (payload) => {
-    let created = null;
-    setInvoices((arr) => {
-      if (arr.some((inv) => inv.appointmentId === payload.appointmentId)) return arr;
-      const services = Array.isArray(payload.services) && payload.services.length > 0
-        ? payload.services
-        : [{ name: "استشارة", price: Number(payload.amount) || 0, qty: 1 }];
-      const total = services.reduce((sum, item) => sum + (Number(item.price) || 0) * (Number(item.qty) || 1), 0);
-      created = {
-        id: makeId(),
-        patient: payload.patient,
-        patientId: payload.patientId || null,
-        appointmentId: payload.appointmentId,
-        date: payload.date || "اليوم",
-        services,
-        amount: total,
-        paidAmount: 0,
-        paymentMethod: null,
-        status: "unpaid",
-      };
-      return [created, ...arr];
-    });
-    return created;
+    return invoices.find((inv) => inv.appointmentId === payload.appointmentId) || null;
   };
 
-  const recordPayment = (id, patch) => {
-    setInvoices((arr) =>
-      arr.map((inv) => {
-        if (inv.id !== id) return inv;
-        const total = Number(inv.amount) || 0;
-        const paidAmount = Math.max(0, Number(patch.paidAmount) || 0);
-        return {
-          ...inv,
-          paidAmount,
-          paymentMethod: patch.paymentMethod || inv.paymentMethod || "cash",
-          status: paidAmount >= total ? "paid" : paidAmount > 0 ? "partial" : "unpaid",
-        };
-      })
-    );
+  const recordPayment = async (id, patch) => {
+    const paid = await api.payInvoice(id, {
+      paidAmount: Number(patch.paidAmount) || undefined,
+      method: patch.method || patch.paymentMethod || undefined,
+      reference: patch.reference || undefined,
+    });
+    const mapped = mapInvoice(paid);
+    setInvoices((arr) => arr.map((inv) => (inv.id === id ? mapped : inv)));
+    return mapped;
   };
 
   const deleteInvoice = (id) => {
     setInvoices((arr) => arr.filter((inv) => inv.id !== id));
   };
 
+  const refreshInvoices = useCallback(async () => {
+    try {
+      const rows = await api.getInvoices({ limit: 100 });
+      setInvoices(takeItems(rows).map(mapInvoice));
+    } catch {
+      // ignore transient refresh errors — PollingCoordinator will retry
+    }
+  }, []);
+
   const value = useMemo(
-    () => ({ invoices, addInvoice, updateInvoice, deleteInvoice, ensureDraftInvoiceForAppointment, recordPayment }),
-    [invoices]
+    () => ({ invoices, addInvoice, updateInvoice, deleteInvoice, ensureDraftInvoiceForAppointment, recordPayment, refreshInvoices }),
+    [invoices, refreshInvoices]
   );
 
   return (

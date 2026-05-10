@@ -14,10 +14,12 @@ import {
   ArrowRightOnRectangleIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
+  QueueListIcon,
 } from "@heroicons/react/24/outline";
 import { ROLES, useAuth } from "../../context/AuthContext.jsx";
 import { useAppointments } from "../../context/AppointmentsContext.jsx";
 import { useBilling } from "../../context/BillingContext.jsx";
+import { useBookingRequests } from "../../context/BookingRequestsContext.jsx";
 import mediflowLogo from "../../assets/mediflow-logo.png";
 
 const ICONS = {
@@ -30,6 +32,7 @@ const ICONS = {
   reports: ChartBarIcon,
   procedures: ClipboardDocumentListIcon,
   settings: Cog6ToothIcon,
+  bookingRequests: QueueListIcon,
 };
 
 function navForRole(role) {
@@ -37,8 +40,10 @@ function navForRole(role) {
     return [
       { to: "/dashboard", label: "الرئيسية", icon: "dashboard" },
       { to: "/appointments", label: "المواعيد", icon: "appointments", badgeKey: "appointments" },
+      { to: "/booking-requests", label: "طلبات الحجز", icon: "bookingRequests", badgeKey: "bookingRequests" },
       { to: "/patients", label: "المرضى", icon: "patients" },
       { to: "/billing", label: "الفوترة", icon: "billing", badgeKey: "billing" },
+      { to: "/settings", label: "الإعدادات", icon: "settings" },
     ];
   }
   if (role === ROLES.DOCTOR) {
@@ -47,11 +52,13 @@ function navForRole(role) {
       { to: "/appointments", label: "المواعيد", icon: "schedule", badgeKey: "appointments" },
       { to: "/patients", label: "المرضى", icon: "patients" },
       { to: "/procedures", label: "إجراءاتي", icon: "procedures" },
+      { to: "/settings", label: "الإعدادات", icon: "settings" },
     ];
   }
   return [
     { to: "/dashboard", label: "الرئيسية", icon: "dashboard" },
     { to: "/appointments", label: "المواعيد", icon: "appointments", badgeKey: "appointments" },
+    { to: "/booking-requests", label: "طلبات الحجز", icon: "bookingRequests", badgeKey: "bookingRequests" },
     { to: "/patients", label: "المرضى", icon: "patients" },
     { to: "/billing", label: "الفوترة", icon: "billing", badgeKey: "billing" },
     { to: "/inventory", label: "المخزون", icon: "inventory" },
@@ -65,6 +72,7 @@ export default function Sidebar() {
   const { role, user, logout } = useAuth();
   const { items: appts } = useAppointments();
   const { invoices } = useBilling();
+  const { pendingCount: bookingPending } = useBookingRequests();
   const [collapsed, setCollapsed] = useState(false);
 
   const items = navForRole(role);
@@ -72,18 +80,18 @@ export default function Sidebar() {
   const badges = {
     appointments: appts.filter((a) => a.day === 0).length || appts.length,
     billing: invoices.filter((i) => i.status === "overdue" || i.status === "due").length,
+    bookingRequests: bookingPending,
   };
 
   return (
     <motion.aside
-      animate={{ width: collapsed ? 72 : 244 }}
+      animate={{ width: collapsed ? 72 : 240 }}
       transition={{ type: "spring", stiffness: 340, damping: 34 }}
-      className="sidebar-dark shrink-0 hidden md:flex flex-col h-screen sticky top-0 z-20 overflow-hidden border-s border-[rgba(255,255,255,0.05)]"
-      style={{ minWidth: collapsed ? 72 : 244 }}
+      className="sidebar-shell shrink-0 hidden md:flex flex-col h-screen sticky top-0 z-20 overflow-hidden bg-gradient-to-b from-[#0f172a] to-[#0e1f35]"
+      style={{ minWidth: collapsed ? 72 : 240 }}
     >
-      {/* Logo */}
-      <div className={`px-4 pt-6 pb-5 flex items-center ${collapsed ? "justify-center" : "gap-3"}`}>
-        <div className="w-9 h-9 rounded-xl overflow-hidden bg-surface-base/90 shrink-0 shadow-[0_4px_12px_rgba(6,182,212,0.35)] ring-1 ring-surface-high/60">
+      <div className={`px-3 pt-5 pb-4 flex items-center ${collapsed ? "justify-center" : "gap-3"}`}>
+        <div className="w-9 h-9 rounded-xl overflow-hidden bg-white/[0.08] shrink-0 ring-1 ring-white/10">
           <img
             src={mediflowLogo}
             alt="MediFlow logo"
@@ -103,7 +111,7 @@ export default function Sidebar() {
               <div className="font-display font-bold text-white text-[15px] whitespace-nowrap">
                 ميدي فلو
               </div>
-              <div className="text-[10px] font-semibold text-night-dim uppercase tracking-wider whitespace-nowrap">
+              <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider whitespace-nowrap">
                 بوابة العيادة
               </div>
             </motion.div>
@@ -111,10 +119,9 @@ export default function Sidebar() {
         </AnimatePresence>
       </div>
 
-      {/* Collapse toggle */}
       <button
         onClick={() => setCollapsed((c) => !c)}
-        className="mx-3 mb-3 flex items-center justify-center h-8 rounded-lg hover:bg-[rgba(255,255,255,0.07)] text-night-mute hover:text-night-text transition-colors"
+        className="mx-2.5 mb-2 flex items-center justify-center h-8 rounded-lg text-slate-400 hover:bg-white/[0.07] hover:text-slate-200 transition-colors"
         title={collapsed ? "توسيع القائمة" : "طي القائمة"}
       >
         {collapsed ? (
@@ -127,11 +134,9 @@ export default function Sidebar() {
         )}
       </button>
 
-      {/* Divider */}
-      <div className="mx-4 mb-3 h-px bg-[rgba(255,255,255,0.07)]" />
+      <div className="mx-3 mb-2 h-px bg-white/[0.07]" />
 
-      {/* Navigation */}
-      <nav className="px-2.5 flex-1 space-y-0.5 overflow-hidden">
+      <nav className="px-2 flex-1 space-y-0.5 overflow-hidden">
         {items.map((it, idx) => {
           const Icon = ICONS[it.icon];
           const badgeCount = it.badgeKey ? badges[it.badgeKey] : 0;
@@ -142,11 +147,11 @@ export default function Sidebar() {
               title={collapsed ? it.label : undefined}
               className={({ isActive }) =>
                 [
-                  "relative flex items-center rounded-xl text-sm font-medium cursor-pointer",
+                  "relative flex items-center rounded-xl text-sm font-medium cursor-pointer transition-colors",
                   collapsed ? "h-11 justify-center px-0" : "gap-3 px-3 py-2.5",
                   isActive
-                    ? "bg-[rgba(6,182,212,0.2)] text-[#67e8f9] font-semibold shadow-[inset_0_0_0_1px_rgba(103,232,249,0.28)]"
-                    : "text-[#94a3b8] hover:bg-[rgba(255,255,255,0.09)] hover:text-[#f1f5f9]",
+                    ? "bg-[rgba(6,182,212,0.16)] text-[#67e8f9] font-semibold border-s-[3px] border-[#06b6d4]"
+                    : "text-slate-400 hover:bg-white/[0.07] hover:text-slate-100 border-s-[3px] border-transparent",
                 ].join(" ")
               }
             >
@@ -159,7 +164,7 @@ export default function Sidebar() {
                     className={`shrink-0 ${collapsed ? "w-full flex justify-center" : ""}`}
                   >
                     <Icon
-                      className={`w-[22px] h-[22px] ${
+                      className={`w-[21px] h-[21px] ${
                         isActive ? "text-[#06b6d4]" : "text-current"
                       }`}
                     />
@@ -181,19 +186,12 @@ export default function Sidebar() {
                     <span
                       className={`inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full text-[10px] font-bold ${
                         it.badgeKey === "billing"
-                          ? "bg-[rgba(220,38,38,0.25)] text-[#fca5a5]"
-                          : "bg-[rgba(6,182,212,0.22)] text-[#67e8f9]"
+                          ? "bg-danger text-white shadow-sm"
+                          : "bg-[#06b6d4] text-[#071828] shadow-sm"
                       }`}
                     >
                       {badgeCount}
                     </span>
-                  )}
-                  {isActive && (
-                    <motion.div
-                      layoutId="sidebar-active-glow"
-                      className="absolute inset-0 rounded-xl bg-[rgba(6,182,212,0.08)] -z-10"
-                      transition={{ type: "spring", stiffness: 400, damping: 32 }}
-                    />
                   )}
                 </>
               )}
@@ -202,25 +200,28 @@ export default function Sidebar() {
         })}
       </nav>
 
-      {/* Footer */}
-      <div className={`border-t border-[rgba(255,255,255,0.07)] px-3 py-3 space-y-0.5`}>
+      <div className="border-t border-white/[0.07] px-2.5 py-3 space-y-0.5 mt-auto">
         {!collapsed && (
           <>
-            <button className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-[#94a3b8] hover:bg-[rgba(255,255,255,0.06)] hover:text-[#e2e8f0] transition-colors">
+            <button
+              type="button"
+              className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-medium text-slate-400 hover:bg-white/[0.06] hover:text-slate-200 transition-colors"
+            >
               <QuestionMarkCircleIcon className="w-5 h-5 shrink-0" />
               مركز المساعدة
             </button>
             <button
+              type="button"
               onClick={logout}
-              className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-[#94a3b8] hover:bg-[rgba(255,255,255,0.06)] hover:text-[#e2e8f0] transition-colors"
+              className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-medium text-slate-400 hover:bg-white/[0.06] hover:text-slate-200 transition-colors"
             >
               <ArrowRightOnRectangleIcon className="w-5 h-5 shrink-0 scale-x-[-1]" />
               تسجيل خروج
             </button>
           </>
         )}
-        <div className={`px-2 pt-3 pb-1 flex items-center ${collapsed ? "justify-center" : "gap-3"}`}>
-          <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[#0891b2] to-[#0e7490] text-white grid place-items-center font-semibold text-xs shrink-0">
+        <div className={`px-1.5 pt-2 flex items-center ${collapsed ? "justify-center" : "gap-3"}`}>
+          <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[#06b6d4] to-[#0e7490] text-white grid place-items-center font-semibold text-xs shrink-0 shadow-sm">
             {user.initials}
           </div>
           <AnimatePresence>
@@ -229,12 +230,14 @@ export default function Sidebar() {
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
-                className="overflow-hidden"
+                className="overflow-hidden min-w-0"
               >
-                <div className="text-xs font-semibold text-[#e2e8f0] whitespace-nowrap truncate max-w-[140px]">
+                <div className="text-xs font-semibold text-slate-100 whitespace-nowrap truncate max-w-[132px]">
                   {user.name}
                 </div>
-                <div className="text-[10px] text-night-dim whitespace-nowrap">{user.title}</div>
+                <div className="text-[10px] text-slate-400 whitespace-nowrap truncate">
+                  {user.title}
+                </div>
               </motion.div>
             )}
           </AnimatePresence>

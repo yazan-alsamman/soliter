@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion } from "framer-motion";
 import {
   AdjustmentsHorizontalIcon,
   ArrowDownTrayIcon,
@@ -12,7 +12,6 @@ import {
   ShieldCheckIcon,
   ClockIcon,
   ExclamationCircleIcon,
-  CalendarDaysIcon,
 } from "@heroicons/react/24/outline";
 import { useAuth } from "../context/AuthContext.jsx";
 import { usePatients } from "../context/PatientsContext.jsx";
@@ -43,20 +42,48 @@ export default function Patients() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { can } = useAuth();
-  const { patients, addPatient, updatePatient, deletePatient } = usePatients();
+  const { patients, addPatient, updatePatient, deletePatient, searchPatients } = usePatients();
   const [tab, setTab] = useState("all");
   const [query, setQuery] = useState("");
   const [editor, setEditor] = useState(null);
   const [deleting, setDeleting] = useState(null);
-  const [hoveredId, setHoveredId] = useState(null);
+  const [searchResults, setSearchResults] = useState(null); // null = not searching
+  const [isSearching, setIsSearching] = useState(false);
+  const searchTimerRef = useRef(null);
 
+  // Debounced backend search — hits the actual DB instead of filtering the 50-item cache
+  const handleQueryChange = useCallback((q) => {
+    setQuery(q);
+    if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+    if (!q.trim()) {
+      setSearchResults(null);
+      return;
+    }
+    setIsSearching(true);
+    searchTimerRef.current = setTimeout(async () => {
+      try {
+        const results = await searchPatients(q.trim());
+        setSearchResults(results);
+      } catch {
+        setSearchResults([]);
+      } finally {
+        setIsSearching(false);
+      }
+    }, 280);
+  }, [searchPatients]);
+
+  // When switching tabs, clear search
+  const handleTabChange = useCallback((t) => {
+    setTab(t);
+    setQuery("");
+    setSearchResults(null);
+  }, []);
+
+  // Use backend search results when querying, else filter local list by tab only
   const filtered = useMemo(() => {
-    return patients
-      .filter((p) => (tab === "all" ? true : p.status === tab))
-      .filter((p) =>
-        [p.name, p.id].join(" ").toLowerCase().includes(query.toLowerCase())
-      );
-  }, [tab, query, patients]);
+    if (searchResults !== null) return searchResults;
+    return patients.filter((p) => (tab === "all" ? true : p.status === tab));
+  }, [tab, patients, searchResults]);
 
   useEffect(() => {
     if (searchParams.get("create") !== "1" || !can("patients.create")) return;
@@ -102,7 +129,7 @@ export default function Patients() {
             {TABS.map((t) => (
               <button
                 key={t.id}
-                onClick={() => setTab(t.id)}
+                onClick={() => handleTabChange(t.id)}
                 className="relative px-3.5 h-8 text-xs font-semibold rounded-full"
               >
                 {tab === t.id && (
@@ -120,12 +147,17 @@ export default function Patients() {
           </div>
 
           <div className="flex items-center gap-2">
-            <input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="ابحث بالاسم أو الرقم..."
-              className="input h-9 w-56 text-xs"
-            />
+            <div className="relative">
+              <input
+                value={query}
+                onChange={(e) => handleQueryChange(e.target.value)}
+                placeholder="ابحث بالاسم أو الهاتف…"
+                className="input h-9 w-56 text-xs ps-3 pe-7"
+              />
+              {isSearching && (
+                <span className="absolute end-2 top-1/2 -translate-y-1/2 text-ink-mute text-[10px]">⏳</span>
+              )}
+            </div>
             <button className="btn-ghost h-9 px-3 text-xs">
               <AdjustmentsHorizontalIcon className="w-4 h-4" />
               تصفية
@@ -158,8 +190,6 @@ export default function Patients() {
                 return (
                   <motion.tr
                     key={p.id}
-                    onMouseEnter={() => setHoveredId(p.id)}
-                    onMouseLeave={() => setHoveredId(null)}
                     initial={{ opacity: 0, y: 6 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: i * 0.04 }}
@@ -209,54 +239,6 @@ export default function Patients() {
                         </div>
                       </div>
 
-                      {/* Hover quick-view */}
-                      <AnimatePresence>
-                        {hoveredId === p.id && (
-                          <motion.div
-                            initial={{ opacity: 0, y: 6, scale: 0.97 }}
-                            animate={{ opacity: 1, y: 0, scale: 1 }}
-                            exit={{ opacity: 0, y: 4, scale: 0.97 }}
-                            transition={{ duration: 0.15 }}
-                            className="absolute top-full mt-1 z-30 start-4 w-[260px] card-float p-3.5"
-                          >
-                            <div className="flex items-center justify-between mb-2">
-                              <span className="text-xs font-bold text-ink">ملف سريع</span>
-                              <span className={`chip text-[9px] ${
-                                p.status === "active" ? "bg-primary-soft text-primary" :
-                                p.status === "new" ? "bg-secondary-soft text-secondary" :
-                                "bg-surface-mid text-ink-mute"
-                              }`}>
-                                {STATUS_AR[p.status]}
-                              </span>
-                            </div>
-                            <div className="space-y-1.5">
-                              <QuickRow icon={ExclamationCircleIcon} iconColor={hasAllergies ? "text-danger" : "text-ink-line"} label="الحساسية">
-                                {hasAllergies ? (
-                                  <span className="text-danger font-medium">{p.allergies.join("، ")}</span>
-                                ) : (
-                                  <span className="text-ink-mute">لا يوجد</span>
-                                )}
-                              </QuickRow>
-                              <QuickRow icon={ClockIcon} iconColor="text-ink-mute" label="آخر زيارة">
-                                <span className="text-ink-variant">{p.lastVisit}</span>
-                              </QuickRow>
-                              <QuickRow icon={CalendarDaysIcon} iconColor={hasApptToday ? "text-primary" : "text-ink-mute"} label="القادم">
-                                <span className={hasApptToday ? "text-primary font-medium" : "text-ink-variant"}>
-                                  {p.nextAppointment}
-                                </span>
-                              </QuickRow>
-                              {p.meds?.length > 0 && (
-                                <QuickRow icon={ShieldCheckIcon} iconColor="text-success" label="الأدوية">
-                                  <span className="text-ink-variant">{p.meds.length} دواء</span>
-                                </QuickRow>
-                              )}
-                            </div>
-                            <button className="mt-3 w-full btn-secondary h-8 text-xs">
-                              احجز موعداً
-                            </button>
-                          </motion.div>
-                        )}
-                      </AnimatePresence>
                     </td>
 
                     <td className="px-5 py-4 text-sm text-ink-variant">{p.lastVisit}</td>
@@ -360,9 +342,9 @@ export default function Patients() {
           mode={editor.mode}
           patient={editor.patient}
           onClose={() => setEditor(null)}
-          onSave={(payload) => {
-            if (editor.mode === "create") addPatient(payload);
-            else updatePatient(editor.patient.id, payload);
+          onSave={async (payload) => {
+            if (editor.mode === "create") await addPatient(payload);
+            else await updatePatient(editor.patient.id, payload);
             setEditor(null);
           }}
         />
@@ -373,24 +355,12 @@ export default function Patients() {
           title="حذف المريض؟"
           description={`سيتم حذف ملف ${deleting.name}. لا يمكن التراجع عن هذا الإجراء.`}
           onClose={() => setDeleting(null)}
-          onConfirm={() => {
-            deletePatient(deleting.id);
+          onConfirm={async () => {
+            await deletePatient(deleting.id);
             setDeleting(null);
           }}
         />
       )}
-    </div>
-  );
-}
-
-function QuickRow({ icon: Icon, iconColor, label, children }) {
-  return (
-    <div className="flex items-start gap-2">
-      <Icon className={`w-3.5 h-3.5 mt-0.5 shrink-0 ${iconColor}`} />
-      <div className="flex-1 min-w-0">
-        <span className="text-[10px] text-ink-mute">{label}: </span>
-        <span className="text-[11px]">{children}</span>
-      </div>
     </div>
   );
 }
@@ -425,25 +395,99 @@ function initials(name) {
     .join("");
 }
 
-function PatientEditorModal({ mode, patient, onClose, onSave }) {
-  const [form, setForm] = useState({
-    name: patient?.name || "",
-    sex: patient?.sex || "ذكر",
-    age: patient?.age || "",
-    bloodType: patient?.bloodType || "O+",
-    status: patient?.status || "new",
-    nextAppointment: patient?.nextAppointment || "—",
-  });
-  const [error, setError] = useState("");
+function parseMedsMultiline(text) {
+  if (!text?.trim()) return [];
+  return text
+    .split("\n")
+    .map((line) => {
+      const idx = line.indexOf("|");
+      const name = idx === -1 ? line.trim() : line.slice(0, idx).trim();
+      const note = idx === -1 ? "" : line.slice(idx + 1).trim();
+      if (!name) return null;
+      return note ? { name, note } : { name };
+    })
+    .filter(Boolean);
+}
 
-  const submit = () => {
+function PatientEditorModal({ mode, patient, onClose, onSave }) {
+  const emptyForm = () => ({
+    name: "",
+    phone: "",
+    age: "",
+    sex: "male",
+    bloodType: "O+",
+    status: "new",
+    allergiesText: "",
+    medsText: "",
+    vitalsBp: "120/80",
+    vitalsHr: "72",
+    vitalsSpo2: "98",
+    notes: "",
+  });
+
+  const [form, setForm] = useState(emptyForm);
+  const [error, setError] = useState("");
+  const [isSaving, setIsSaving] = useState(false);
+
+  useEffect(() => {
+    if (mode === "create") {
+      setForm(emptyForm());
+      return;
+    }
+    if (patient) {
+      setForm({
+        name: patient.name || "",
+        phone: patient.phone || "",
+        age: patient.age != null ? String(patient.age) : "",
+        sex: patient.sexKey || "male",
+        bloodType: patient.bloodType || "O+",
+        status: patient.status || "new",
+        allergiesText: (patient.allergies || []).join("، "),
+        medsText: (patient.meds || [])
+          .map((m) => `${m.name}${m.note ? ` | ${m.note}` : ""}`)
+          .join("\n"),
+        vitalsBp: patient.vitals?.bp ?? "120/80",
+        vitalsHr: String(patient.vitals?.hr ?? 72),
+        vitalsSpo2: String(patient.vitals?.spo2 ?? 98),
+        notes: patient.notes || "",
+      });
+    }
+  }, [mode, patient]);
+
+  const submit = async () => {
+    if (isSaving) return;
     if (!form.name.trim()) return setError("اسم المريض مطلوب");
+    if (mode === "create" && !form.phone.trim()) return setError("رقم الهاتف مطلوب");
     if (!form.age) return setError("العمر مطلوب");
-    onSave({
-      ...form,
-      age: Number(form.age),
-      lastVisit: patient?.lastVisit || "اليوم",
-    });
+    const allergies = form.allergiesText
+      .split(/[,،]/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    const medications = parseMedsMultiline(form.medsText);
+    setError("");
+    setIsSaving(true);
+    try {
+      await onSave({
+        name: form.name.trim(),
+        phone: form.phone.trim(),
+        age: Number(form.age),
+        sex: form.sex,
+        bloodType: form.bloodType,
+        status: form.status,
+        allergies,
+        medications,
+        vitals: {
+          bp: form.vitalsBp.trim(),
+          hr: Number(form.vitalsHr) || 72,
+          spo2: Number(form.vitalsSpo2) || 98,
+        },
+        notes: form.notes.trim(),
+      });
+    } catch (err) {
+      setError(err?.message || "تعذّر حفظ البيانات");
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   return (
@@ -456,17 +500,29 @@ function PatientEditorModal({ mode, patient, onClose, onSave }) {
         animate={{ opacity: 1, scale: 1, y: 0 }}
         transition={{ type: "spring", stiffness: 360, damping: 30 }}
         onClick={(e) => e.stopPropagation()}
-        className="card-modal w-full max-w-xl p-6"
+        className="card-modal w-full max-w-xl p-6 max-h-[90vh] overflow-y-auto"
       >
         <h3 className="h3 mb-5">
           {mode === "create" ? "إضافة مريض جديد" : "تعديل بيانات المريض"}
         </h3>
+        <p className="text-xs text-ink-mute mb-4">
+          يُستخرج الموعد القادم وآخر زيارة تلقائياً من جدول المواعيد المحفوظ.
+        </p>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <Field label="الاسم">
             <input
               className="input"
               value={form.name}
               onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+            />
+          </Field>
+          <Field label="رقم الهاتف">
+            <input
+              className="input"
+              type="tel"
+              value={form.phone}
+              onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
+              placeholder="مثال: 0501234567"
             />
           </Field>
           <Field label="العمر">
@@ -483,8 +539,8 @@ function PatientEditorModal({ mode, patient, onClose, onSave }) {
               value={form.sex}
               onChange={(e) => setForm((f) => ({ ...f, sex: e.target.value }))}
             >
-              <option>ذكر</option>
-              <option>أنثى</option>
+              <option value="male">ذكر</option>
+              <option value="female">أنثى</option>
             </select>
           </Field>
           <Field label="فصيلة الدم">
@@ -509,19 +565,66 @@ function PatientEditorModal({ mode, patient, onClose, onSave }) {
               <option value="inactive">غير نشط</option>
             </select>
           </Field>
-          <Field label="الموعد القادم">
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-3">
+          <Field label="ضغط الدم (mmHg)">
             <input
               className="input"
-              value={form.nextAppointment}
-              onChange={(e) => setForm((f) => ({ ...f, nextAppointment: e.target.value }))}
+              value={form.vitalsBp}
+              onChange={(e) => setForm((f) => ({ ...f, vitalsBp: e.target.value }))}
+              placeholder="120/80"
+            />
+          </Field>
+          <Field label="النبض">
+            <input
+              type="number"
+              className="input"
+              value={form.vitalsHr}
+              onChange={(e) => setForm((f) => ({ ...f, vitalsHr: e.target.value }))}
+            />
+          </Field>
+          <Field label="SpO₂ %">
+            <input
+              type="number"
+              className="input"
+              value={form.vitalsSpo2}
+              onChange={(e) => setForm((f) => ({ ...f, vitalsSpo2: e.target.value }))}
             />
           </Field>
         </div>
+
+        <div className="mt-3 space-y-3">
+          <Field label="الحساسية (افصل بفاصلة)">
+            <input
+              className="input"
+              value={form.allergiesText}
+              onChange={(e) => setForm((f) => ({ ...f, allergiesText: e.target.value }))}
+              placeholder="مثال: البنسلين، الغبار"
+            />
+          </Field>
+          <Field label="الأدوية (سطر لكل دواء، اختياري: الاسم | ملاحظة)">
+            <textarea
+              className="input min-h-[88px]"
+              value={form.medsText}
+              onChange={(e) => setForm((f) => ({ ...f, medsText: e.target.value }))}
+              placeholder={"ميتفورمين | 850mg مرتين يومياً\nأملوديبين"}
+            />
+          </Field>
+          <Field label="ملاحظات عامة">
+            <textarea
+              className="input min-h-[72px]"
+              value={form.notes}
+              onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))}
+            />
+          </Field>
+        </div>
+
         {error && <div className="text-xs text-danger mt-2">{error}</div>}
         <div className="flex justify-end gap-2 mt-5">
-          <button className="btn-ghost" onClick={onClose}>إلغاء</button>
-          <button className="btn-primary" onClick={submit}>
-            {mode === "create" ? "إضافة" : "حفظ التعديل"}
+          <button className="btn-ghost" onClick={onClose} disabled={isSaving}>إلغاء</button>
+          <button className="btn-primary disabled:opacity-50" onClick={submit} disabled={isSaving}>
+            {isSaving ? "جارٍ الحفظ…" : mode === "create" ? "إضافة" : "حفظ التعديل"}
           </button>
         </div>
       </motion.div>

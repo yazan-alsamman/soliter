@@ -1,55 +1,87 @@
 /* eslint-disable react-refresh/only-export-components */
-import { createContext, useContext, useMemo, useState } from "react";
-import { DOCTORS } from "../data/mock.js";
-import { buildInitialProcedures, validateProcedurePayload } from "../services/proceduresAdapter.js";
+import { createContext, useContext, useEffect, useMemo, useState } from "react";
+import { api } from "../services/apiClient.js";
+import { useAuth } from "./AuthContext.jsx";
 
 const ProceduresContext = createContext(null);
+const takeItems = (payload) => (Array.isArray(payload) ? payload : payload?.items || []);
+const mapProcedure = (row) => ({
+  id: row.id,
+  doctorId: row.doctorId || null,
+  name: row.name,
+  price: Number(row.price) || 0,
+  duration: Number(row.durationMinutes || 60) / 60,
+  category: row.category || "general",
+  aliases: row.aliases || [],
+  active: row.active !== false,
+});
 
 export function ProceduresProvider({ children }) {
-  const [procedures, setProcedures] = useState(() => buildInitialProcedures(DOCTORS));
+  const { isAuthenticated } = useAuth();
+  const [procedures, setProcedures] = useState([]);
 
-  const createProcedure = (doctorId, payload) => {
-    const err = validateProcedurePayload(payload);
-    if (err) return { ok: false, message: err };
-    const next = {
-      id: `PR-${Date.now()}`,
-      doctorId,
-      name: String(payload.name || "").trim(),
-      price: Number(payload.price),
-      duration: Number(payload.duration),
-      category: String(payload.category || "general").trim(),
-      aliases: String(payload.aliases || "")
-        .split(",")
-        .map((x) => x.trim())
-        .filter(Boolean),
-      active: payload.active ?? true,
+  useEffect(() => {
+    if (!isAuthenticated) {
+      setProcedures([]);
+      return;
+    }
+    let cancelled = false;
+    api
+      .getServices()
+      .then((rows) => {
+        if (!cancelled) setProcedures(takeItems(rows || []).map(mapProcedure));
+      })
+      .catch(() => {
+        if (!cancelled) setProcedures([]);
+      });
+    return () => {
+      cancelled = true;
     };
-    setProcedures((prev) => [next, ...prev]);
-    return { ok: true, procedure: next };
+  }, [isAuthenticated]);
+
+  const createProcedure = async (doctorId, payload) => {
+    try {
+      const created = await api.createService({
+        doctorId,
+        name: payload.name,
+        price: Number(payload.price),
+        durationMinutes: Math.max(1, Math.round(Number(payload.duration) * 60)),
+        category: payload.category || "general",
+        aliases: String(payload.aliases || "")
+          .split(",")
+          .map((x) => x.trim())
+          .filter(Boolean),
+        active: payload.active ?? true,
+      });
+      const mapped = mapProcedure(created);
+      setProcedures((prev) => [mapped, ...prev]);
+      return { ok: true, procedure: mapped };
+    } catch (error) {
+      return { ok: false, message: error.message || "تعذر إنشاء الإجراء" };
+    }
   };
 
-  const updateProcedure = (id, patch) => {
-    const current = procedures.find((p) => p.id === id);
-    if (!current) return { ok: false, message: "الإجراء غير موجود" };
-    const merged = { ...current, ...patch };
-    const err = validateProcedurePayload(merged);
-    if (err) return { ok: false, message: err };
-    setProcedures((prev) =>
-      prev.map((p) =>
-        p.id === id
-          ? {
-              ...p,
-              ...patch,
-              price: Number(patch.price ?? p.price),
-              duration: Number(patch.duration ?? p.duration),
-            }
-          : p
-      )
-    );
-    return { ok: true };
+  const updateProcedure = async (id, patch) => {
+    try {
+      const updated = await api.updateService(id, {
+        name: patch.name,
+        price: patch.price != null ? Number(patch.price) : undefined,
+        durationMinutes: patch.duration != null ? Math.max(1, Math.round(Number(patch.duration) * 60)) : undefined,
+        category: patch.category,
+        aliases: patch.aliases,
+        active: patch.active,
+        doctorId: patch.doctorId,
+      });
+      const mapped = mapProcedure(updated);
+      setProcedures((prev) => prev.map((p) => (p.id === id ? mapped : p)));
+      return { ok: true };
+    } catch (error) {
+      return { ok: false, message: error.message || "تعذر تحديث الإجراء" };
+    }
   };
 
-  const deleteProcedure = (id) => {
+  const deleteProcedure = async (id) => {
+    await api.deleteService(id);
     setProcedures((prev) => prev.filter((p) => p.id !== id));
   };
 

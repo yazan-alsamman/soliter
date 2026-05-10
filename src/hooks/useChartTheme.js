@@ -38,7 +38,7 @@ export function useChartTheme() {
         color: rgb(textPrimary, 1),
         boxShadow: darkMode
           ? "0 10px 26px rgba(2,8,23,0.42)"
-          : "0 10px 22px rgba(15,23,42,0.14)",
+          : "0 4px 14px rgba(15,23,42,0.08)",
       },
       tooltipLabelStyle: {
         color: rgb(textPrimary, 1),
@@ -49,9 +49,9 @@ export function useChartTheme() {
         fontWeight: 600,
       },
       primaryDotFill: rgb(seriesPrimary, 1),
-      linePrimaryDot: { r: 3.5, fill: rgb(seriesPrimary, 1), stroke: rgb(seriesPrimary, darkMode ? 0.35 : 0.24), strokeWidth: 1 },
-      linePrimaryActiveDot: { r: 6, fill: rgb(seriesPrimary, 1), stroke: rgb(tooltipBg, 1), strokeWidth: 2 },
-      lineSecondaryActiveDot: { r: 4.5, fill: rgb(seriesSecondary, 1), stroke: rgb(tooltipBg, 1), strokeWidth: 1.5 },
+      linePrimaryDot: { r: 2.5, fill: rgb(seriesPrimary, 1), stroke: rgb(seriesPrimary, darkMode ? 0.35 : 0.2), strokeWidth: 0.75 },
+      linePrimaryActiveDot: { r: 4, fill: rgb(seriesPrimary, 1), stroke: rgb(tooltipBg, 1), strokeWidth: 1.5 },
+      lineSecondaryActiveDot: { r: 3.5, fill: rgb(seriesSecondary, 1), stroke: rgb(tooltipBg, 1), strokeWidth: 1.25 },
       tooltipWrapperStyle: {
         outline: "none",
         zIndex: 30,

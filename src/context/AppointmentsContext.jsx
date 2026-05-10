@@ -1,23 +1,46 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
-import { APPOINTMENTS, DOCTORS, PATIENTS } from "../data/mock.js";
 import { useBilling } from "./BillingContext.jsx";
 import { getServiceByName } from "../data/services.js";
 import { useProcedures } from "./ProceduresContext.jsx";
+import { usePatients } from "./PatientsContext.jsx";
+import { api } from "../services/apiClient.js";
+import { useAuth } from "./AuthContext.jsx";
+import { colorFromDoctorId } from "../utils/doctorColors.js";
 
 const AppointmentsContext = createContext(null);
-const FIVE_MINUTES_MS = 5 * 60 * 1000;
 const DEFAULT_NO_SHOW_DELAY_MINUTES = 25;
+const takeItems = (payload) => (Array.isArray(payload) ? payload : payload?.items || []);
 
+/** API defaults to 50 rows per page (max 100); seed/calendar need the full set. */
+async function fetchAllAppointmentRows() {
+  const limit = 100;
+  const acc = [];
+  let page = 1;
+  let totalPages = 1;
+  const safetyMaxPages = 500;
+  do {
+    const payload = await api.getAppointments({ page, limit });
+    acc.push(...takeItems(payload));
+    totalPages = Math.max(1, Number(payload?.meta?.pages ?? 1) || 1);
+    page += 1;
+  } while (page <= totalPages && page <= safetyMaxPages);
+  return acc;
+}
 
-function getAppointmentDate(day, start) {
-  const now = new Date();
-  const weekStart = new Date(now);
-  weekStart.setHours(0, 0, 0, 0);
-  weekStart.setDate(now.getDate() - now.getDay()); // Sunday start
-
-  const target = new Date(weekStart);
-  target.setDate(weekStart.getDate() + Number(day || 0));
-
+/** @param dayColumn 0..6 = Sun..Sat (Date#getDay) within the given week */
+function getAppointmentDate(dayColumn, start, weekStartSunday) {
+  const base = weekStartSunday
+    ? new Date(weekStartSunday)
+    : (() => {
+        const n = new Date();
+        const w = new Date(n);
+        w.setHours(0, 0, 0, 0);
+        w.setDate(n.getDate() - n.getDay());
+        return w;
+      })();
+  base.setHours(0, 0, 0, 0);
+  const target = new Date(base);
+  target.setDate(base.getDate() + Number(dayColumn || 0));
   const hour = Math.floor(Number(start || 0));
   const minutes = Math.round((Number(start || 0) - hour) * 60);
   target.setHours(hour, minutes, 0, 0);
@@ -33,8 +56,6 @@ function resolveDuration(appt, procedures) {
   const visitType = (appt.visitType || appt.reason || "").trim();
   const resolved = getServiceByName(visitType, { procedures, doctorId: appt.doctor });
   if (visitType && Number(resolved?.duration) > 0) return Number(resolved.duration);
-  const doctor = DOCTORS.find((d) => d.id === appt.doctor);
-  if (doctor?.defaultDuration) return doctor.defaultDuration;
   return 1;
 }
 
@@ -68,81 +89,162 @@ function findNearestAvailableStart(items, candidate) {
   return null;
 }
 
-function normalizeAppointment(appt, procedures) {
-  const doctor = DOCTORS.find((d) => d.id === appt.doctor) || DOCTORS[0];
-  const service = getServiceByName(appt.treatmentName || appt.visitType || appt.reason, {
+function resolveServiceForAppointment(appt, procedures) {
+  if (appt.serviceId) {
+    const found = procedures.find((p) => p.id === appt.serviceId);
+    if (found) return found;
+  }
+  return getServiceByName(appt.treatmentName || appt.visitType || appt.reason, {
     procedures,
-    doctorId: appt.doctor || doctor.id,
+    doctorId: appt.doctor,
   });
+}
+
+function normalizeAppointment(appt, procedures) {
+  const service = resolveServiceForAppointment(appt, procedures);
   return {
     ...appt,
-    doctor: appt.doctor || doctor.id,
-    color: appt.color || doctor.color,
-    visitType: appt.visitType || normalizeReason(appt.reason, procedures, appt.doctor || doctor.id),
+    serviceId: appt.serviceId || service?.id,
+    doctor: appt.doctor || "",
+    color: appt.color || colorFromDoctorId(appt.doctor),
+    visitType: appt.visitType || normalizeReason(appt.reason, procedures, appt.doctor),
     duration: resolveDuration(appt, procedures),
     status: appt.status || "scheduled",
     treatmentName: appt.treatmentName || service.name,
     treatmentPrice: Number(appt.treatmentPrice) > 0 ? Number(appt.treatmentPrice) : service.price,
     priceConfirmed: !!appt.priceConfirmed,
-    handoffReady: !!appt.handoffReady,
     overbooked: !!appt.overbooked,
     reminderStatus: appt.reminderStatus || "idle",
     reminderWindow: appt.reminderWindow || "2h",
     reminderText: appt.reminderText || "",
+    media: Array.isArray(appt.media) ? appt.media : [],
   };
 }
 
+function getSundayOfWeek(date) {
+  const d = new Date(date);
+  d.setHours(0, 0, 0, 0);
+  d.setDate(d.getDate() - d.getDay());
+  return d.getTime();
+}
+
+function mapApiAppointment(appt, procedures) {
+  const startDate = new Date(appt.startTime);
+  const endDate = new Date(appt.endTime);
+  const start = startDate.getHours() + startDate.getMinutes() / 60;
+  const duration = Math.max(0.25, (endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60));
+  const appointmentServices = appt.appointmentServices || [];
+  const serviceNames = appointmentServices.map((x) => x.service?.name).filter(Boolean);
+  const serviceTotal =
+    appointmentServices.length > 0
+      ? appointmentServices.reduce((sum, x) => sum + Number(x.lineTotal || 0), 0)
+      : Number(appt.service?.price || 0);
+  return normalizeAppointment(
+    {
+      id: appt.id,
+      patientId: appt.patientId,
+      doctor: appt.doctorId,
+      patient: appt.patient?.name || appt.patientName || "—",
+      reason: serviceNames[0] || appt.service?.name || "استشارة",
+      visitType: serviceNames[0] || appt.service?.name || "استشارة",
+      treatmentName: serviceNames.join(" + ") || appt.service?.name || "استشارة",
+      treatmentPrice: Number(appt.finalTotal ?? serviceTotal),
+      serviceIds: appointmentServices.map((x) => x.serviceId),
+      serviceId: appt.serviceId || appt.service?.id || appointmentServices[0]?.serviceId,
+      baseTotal: Number(appt.baseTotal ?? serviceTotal),
+      discount: Number(appt.discount ?? 0),
+      finalTotal: Number(appt.finalTotal ?? serviceTotal),
+      consentObtained: !!appt.consentObtained,
+      treatmentDetails: appt.treatmentDetails || "",
+      doctorRemarks: appt.doctorRemarks || "",
+      specialConditions: appt.specialConditions || "",
+      media: Array.isArray(appt.media) ? appt.media : [],
+      day: startDate.getDay(),
+      start,
+      duration,
+      status: appt.status,
+      notes: appt.notes || "",
+      overbooked: !!appt.overbooked,
+      _weekStart: getSundayOfWeek(startDate),
+      appointmentStart: appt.startTime,
+    },
+    procedures
+  );
+}
+
 export function AppointmentsProvider({ children }) {
+  const { isAuthenticated } = useAuth();
   const { procedures } = useProcedures();
-  const [items, setItems] = useState(() => APPOINTMENTS.map((appt) => normalizeAppointment(appt, [])));
+  const { patients, addPatient } = usePatients();
+  const [items, setItems] = useState([]);
   const [toast, setToast] = useState(null);
+  const [pendingStatusIds, setPendingStatusIds] = useState([]);
   const [noShowDelayMinutes] = useState(DEFAULT_NO_SHOW_DELAY_MINUTES);
-  const { ensureDraftInvoiceForAppointment, updateInvoice, invoices } = useBilling();
+  const { refreshInvoices } = useBilling();
+
+  const refreshAppointments = useCallback(async () => {
+    const rows = await fetchAllAppointmentRows();
+    setItems((prevItems) =>
+      rows.map((row) => {
+        const mapped = mapApiAppointment(row, procedures);
+        const old = prevItems.find((x) => x.id === mapped.id);
+        const bad =
+          !mapped.patient ||
+          mapped.patient === "—" ||
+          String(mapped.patient).trim() === "";
+        if (
+          bad &&
+          old &&
+          typeof old.patient === "string" &&
+          old.patient.trim() &&
+          old.patient !== "—"
+        ) {
+          return { ...mapped, patient: old.patient };
+        }
+        return mapped;
+      })
+    );
+  }, [procedures]);
+
+  useEffect(() => {
+    if (!isAuthenticated) {
+      setItems([]);
+      return;
+    }
+    // Initial load only — recurring polling is handled by PollingCoordinator
+    refreshAppointments().catch(() => setItems([]));
+  }, [isAuthenticated, refreshAppointments]);
 
   const showToast = useCallback((message) => {
     setToast({ message, id: Date.now() });
     setTimeout(() => setToast(null), 2600);
   }, []);
 
-  const createDraftInvoiceForAppointment = useCallback(
-    (appointment) => {
-      const service = getServiceByName(appointment.treatmentName || appointment.visitType || appointment.reason, {
-        procedures,
-        doctorId: appointment.doctor,
-      });
-      const patient = PATIENTS.find((p) => p.name === appointment.patient);
-      return ensureDraftInvoiceForAppointment({
-        appointmentId: appointment.id,
-        patient: appointment.patient,
-        patientId: patient?.id || null,
-        services: [{ name: service.name, price: service.price, qty: 1 }],
-        amount: Number(appointment.treatmentPrice) > 0 ? Number(appointment.treatmentPrice) : service.price,
-      });
-    },
-    [ensureDraftInvoiceForAppointment, procedures]
-  );
-
-  const addAppointment = useCallback((appt, options = {}) => {
+  const addAppointment = useCallback(async (appt, options = {}) => {
+    if (!appt.doctor) {
+      return { ok: false, code: "DOCTOR_REQUIRED", message: "تعذر إنشاء الموعد: الطبيب غير محدد." };
+    }
     const duration = resolveDuration(appt, procedures);
-    const id = `A-${Date.now()}`;
-    const doctor = DOCTORS.find((d) => d.id === appt.doctor) || DOCTORS[0];
-    const selectedService = getServiceByName(appt.visitType || appt.reason, {
-      procedures,
-      doctorId: appt.doctor || doctor.id,
-    });
+    const selectedService = resolveServiceForAppointment(appt, procedures);
+    if (!selectedService?.id) {
+      return {
+        ok: false,
+        code: "SERVICE_REQUIRED",
+        message: "الإجراء غير محدد أو غير متوافق مع الطبيب المختار.",
+      };
+    }
     const base = {
       day: Number(appt.day),
       start: Number(appt.start),
       duration,
       patient: appt.patient,
-      reason: normalizeReason(appt.reason, procedures, appt.doctor || doctor.id),
-      visitType: appt.visitType || normalizeReason(appt.reason, procedures, appt.doctor || doctor.id),
+      reason: normalizeReason(appt.reason, procedures, appt.doctor),
+      visitType: appt.visitType || normalizeReason(appt.reason, procedures, appt.doctor),
       treatmentName: selectedService.name,
       treatmentPrice: selectedService.price,
       priceConfirmed: false,
-      handoffReady: false,
       doctor: appt.doctor,
-      color: doctor.color,
+      color: colorFromDoctorId(appt.doctor),
       urgent: !!appt.urgent,
       status: appt.status || "scheduled",
       overbooked: false,
@@ -150,104 +252,182 @@ export function AppointmentsProvider({ children }) {
       reminderWindow: appt.reminderWindow || "2h",
       reminderText: appt.reminderText || "",
     };
-    const conflicts = findConflicts(items, base);
-    const nearestStart = findNearestAvailableStart(items, base);
-    if (conflicts.length && !options.allowOverride) {
+    const startDatePreview = getAppointmentDate(base.day, base.start, options.weekStart);
+    const draftWeek = getSundayOfWeek(startDatePreview);
+    const weekItems = items.filter((item) => !item._weekStart || item._weekStart === draftWeek);
+    const conflicts = findConflicts(weekItems, base);
+    const nearestStart = findNearestAvailableStart(weekItems, base);
+    try {
+      const startDate = getAppointmentDate(base.day, base.start, options.weekStart);
+      if (startDate.getTime() < Date.now()) {
+        return {
+          ok: false,
+          code: 'PAST_SLOT',
+          message: 'لا يمكن حجز موعد في وقت مضى.',
+        };
+      }
+      let patient;
+      if (appt.patientId) {
+        patient = patients.find((p) => p.id === appt.patientId);
+      }
+      if (!patient) {
+        patient = patients.find((p) => p.name === appt.patient);
+      }
+      if (!patient) {
+        patient = await addPatient({
+          name: appt.patient,
+          phone: appt.patientPhone || `AUTO-${appt.patient.trim()}`,
+          quickRegistration: true,
+        });
+      }
+      const created = await api.createAppointment({
+        patientId: patient.id,
+        doctorId: base.doctor,
+        serviceId: selectedService.id,
+        serviceIds: appt.serviceIds?.length ? appt.serviceIds : [selectedService.id],
+        startTime: startDate.toISOString(),
+        allowOverbook: !!options.allowOverride,
+        notes: base.reason,
+        discount: Number(appt.discount || 0) || undefined,
+        manualPriceOverride: Number(appt.treatmentPrice || 0) > 0 ? Number(appt.treatmentPrice) : undefined,
+        consentObtained: !!appt.consentObtained,
+      });
+      const next = mapApiAppointment(created, procedures);
+      setItems((arr) => [...arr, next]);
+      showToast("تم إنشاء الحجز بنجاح");
+      return { ok: true, appointment: next, conflicts, suggestedStart: nearestStart };
+    } catch (error) {
+      const errorCode = error?.code || "CONFLICT";
       return {
         ok: false,
-        code: "CONFLICT",
+        code: errorCode,
+        message: error.message,
         conflicts,
         suggestedStart: nearestStart,
       };
     }
+  }, [addPatient, items, patients, procedures, showToast]);
 
-    const sameSlotOverbookCount = conflicts.filter(
-      (c) => !!c.overbooked && Number(c.start) === Number(base.start)
-    ).length;
-    if (conflicts.length && options.allowOverride && sameSlotOverbookCount > 0 && !options.confirmRepeatedOverbook) {
-      return {
-        ok: false,
-        code: "REQUIRES_REPEAT_CONFIRMATION",
-        conflicts,
-        suggestedStart: nearestStart,
-      };
-    }
-
-    const next = normalizeAppointment({ id, ...base, overbooked: conflicts.length > 0 }, procedures);
-    setItems((arr) => [...arr, next]);
-    showToast(conflicts.length ? "تم الحجز كـ Overbooking بعد التأكيد" : "تم إنشاء الحجز بنجاح");
-    return { ok: true, appointment: next, conflicts, suggestedStart: nearestStart };
-  }, [items, procedures, showToast]);
-
-  const updateAppointment = useCallback((id, patch) => {
+  const updateAppointment = useCallback(async (id, patch) => {
+    const current = items.find((item) => item.id === id);
+    if (!current) return;
+    const merged = normalizeAppointment({ ...current, ...patch }, procedures);
+    const ws = current._weekStart != null ? new Date(current._weekStart) : undefined;
+    const startDate = getAppointmentDate(Number(merged.day), merged.start, ws);
+    const service = resolveServiceForAppointment(merged, procedures);
+    const patient = patients.find((p) => p.name === merged.patient);
+    const updated = await api.updateAppointment(id, {
+      patientId: patient?.id || current.patientId || patients[0]?.id,
+      doctorId: merged.doctor,
+      serviceId: service.id,
+      serviceIds: merged.serviceIds?.length ? merged.serviceIds : [service.id],
+      startTime: startDate.toISOString(),
+      notes: merged.reason,
+      overbooked: merged.overbooked,
+      discount: Number(merged.discount || 0) || undefined,
+      manualPriceOverride: Number(merged.treatmentPrice || 0) > 0 ? Number(merged.treatmentPrice) : undefined,
+      consentObtained: !!merged.consentObtained,
+      treatmentDetails: merged.treatmentDetails || undefined,
+      doctorRemarks: merged.doctorRemarks || undefined,
+      specialConditions: merged.specialConditions || undefined,
+    });
     setItems((arr) =>
-      arr.map((a) => (a.id === id ? normalizeAppointment({ ...a, ...patch }, procedures) : a))
-    );
-  }, [procedures]);
-
-  const setAppointmentStatus = useCallback((id, status) => {
-    let nextAppointment = null;
-    setItems((arr) =>
-      arr.map((a) => {
-        if (a.id !== id) return a;
-        nextAppointment = { ...a, status };
-        return nextAppointment;
+      arr.map((item) => {
+        if (item.id !== id) return item;
+        const mapped = mapApiAppointment(updated, procedures);
+        const prev = typeof item.patient === "string" ? item.patient.trim() : "";
+        const bad =
+          !mapped.patient ||
+          mapped.patient === "—" ||
+          String(mapped.patient).trim() === "";
+        if (bad && prev && prev !== "—") return { ...mapped, patient: prev };
+        return mapped;
       })
     );
+  }, [items, patients, procedures]);
 
-    if (status === "completed" && nextAppointment) {
-      createDraftInvoiceForAppointment(nextAppointment);
-      showToast("تم إنهاء المعاينة وإنشاء فاتورة غير مدفوعة");
+  const setAppointmentStatus = useCallback(async (id, status) => {
+    if (pendingStatusIds.includes(id)) {
+      return { ok: false, message: "الطلب قيد التنفيذ" };
     }
-
-    if (status === "paid") {
-      let linked = invoices.find((inv) => inv.appointmentId === id);
-      if (!linked && nextAppointment) {
-        linked = createDraftInvoiceForAppointment(nextAppointment);
+    setPendingStatusIds((arr) => [...arr, id]);
+    try {
+      const updated = await api.updateAppointmentStatus(id, { status });
+      setItems((arr) =>
+        arr.map((a) => {
+          if (a.id !== id) return a;
+          const mapped = mapApiAppointment(updated, procedures);
+          const prev =
+            typeof a.patient === "string" ? a.patient.trim() : "";
+          const bad =
+            !mapped.patient ||
+            mapped.patient === "—" ||
+            String(mapped.patient).trim() === "";
+          if (bad && prev && prev !== "—") {
+            return { ...mapped, patient: prev };
+          }
+          return mapped;
+        })
+      );
+      if (status === "arrived") {
+        showToast("تم تسجيل الوصول");
+      } else if (status === "in_consultation") {
+        showToast("تم بدء المعاينة");
+      } else if (status === "completed") {
+        await refreshInvoices();
+        showToast("تم إنهاء المعاينة وإنشاء فاتورة غير مدفوعة");
+      } else if (status === "paid") {
+        await refreshInvoices();
+        showToast("تم تسجيل الدفع");
       }
-      if (linked && linked.status !== "paid") {
-        updateInvoice(linked.id, { status: "paid" });
-      }
-      showToast("تم تسجيل الدفع");
+      return { ok: true, appointment: updated };
+    } catch (error) {
+      showToast(error?.message || "تعذر تحديث حالة الموعد");
+      return { ok: false, message: error?.message || "تعذر تحديث حالة الموعد" };
+    } finally {
+      setPendingStatusIds((arr) => arr.filter((x) => x !== id));
     }
-  }, [createDraftInvoiceForAppointment, invoices, showToast, updateInvoice]);
+  }, [pendingStatusIds, procedures, refreshInvoices, showToast]);
 
-  const confirmDoctorSession = useCallback((id, payload) => {
-    let updated = null;
-    setItems((arr) =>
-      arr.map((a) => {
-        if (a.id !== id) return a;
-        updated = normalizeAppointment({
-          ...a,
-          treatmentName: payload.treatmentName || a.treatmentName || a.visitType || a.reason,
-          treatmentPrice: Number(payload.treatmentPrice) || a.treatmentPrice || 0,
-          priceConfirmed: true,
-          handoffReady: true,
-          status: "completed",
-        }, procedures);
-        return updated;
-      })
-    );
-    if (!updated) return;
-
-    const services = [{ name: updated.treatmentName, price: Number(updated.treatmentPrice) || 0, qty: 1 }];
-    const linked = invoices.find((inv) => inv.appointmentId === id);
-    if (linked) {
-      const paidAmount = Number(linked.paidAmount) || 0;
-      const amount = Number(updated.treatmentPrice) || 0;
-      const status = paidAmount >= amount ? "paid" : paidAmount > 0 ? "partial" : "unpaid";
-      updateInvoice(linked.id, { services, amount, status });
-    } else {
-      createDraftInvoiceForAppointment(updated);
+  const confirmDoctorSession = useCallback(async (id, payload) => {
+    try {
+      const transitioned = await api.finalizeAppointmentSession(id, {
+        serviceIds: payload.serviceIds?.length ? payload.serviceIds : undefined,
+        manualPriceOverride: Number(payload.treatmentPrice) || undefined,
+        doctorRemarks: payload.doctorRemarks?.trim() || undefined,
+        treatmentDetails:
+          payload.treatmentDetails?.trim() ||
+          `${payload.treatmentName || ""} · ${payload.treatmentPrice || ""} ل.س`.trim() ||
+          undefined,
+        markCompleted: true,
+      });
+      setItems((arr) =>
+        arr.map((a) =>
+          a.id === id
+            ? normalizeAppointment(
+                {
+                  ...mapApiAppointment(transitioned, procedures),
+                  treatmentName: payload.treatmentName || a.treatmentName || a.visitType || a.reason,
+                  treatmentPrice: Number(payload.treatmentPrice) || a.treatmentPrice || 0,
+                  priceConfirmed: true,
+                },
+                procedures
+              )
+            : a
+        )
+      );
+      await refreshInvoices();
+      showToast("تم اعتماد العلاج والسعر وتحويل الحالة للاستقبال");
+    } catch (error) {
+      showToast(error?.message || "تعذر اعتماد الجلسة");
     }
-    showToast("تم اعتماد العلاج والسعر وتحويل الحالة للاستقبال");
-  }, [createDraftInvoiceForAppointment, invoices, procedures, showToast, updateInvoice]);
+  }, [procedures, refreshInvoices, showToast]);
 
   const advanceAppointment = useCallback((id) => {
     const appt = items.find((item) => item.id === id);
     if (!appt) return;
     const flow = {
-      scheduled: "confirmed",
+      scheduled: "arrived",
       confirmed: "arrived",
       arrived: "in_consultation",
       in_consultation: "completed",
@@ -265,34 +445,23 @@ export function AppointmentsProvider({ children }) {
     return () => window.cancelAnimationFrame(raf);
   }, [procedures]);
 
-  useEffect(() => {
-    const timer = setInterval(() => {
-      const now = new Date();
-      setItems((arr) =>
-        arr.map((appt) => {
-          if (appt.status !== "confirmed") return appt;
-          const apptDate = getAppointmentDate(appt.day, appt.start);
-          if (apptDate.getTime() > now.getTime()) return appt; // future safeguard
-          const cutoff = new Date(apptDate.getTime() + noShowDelayMinutes * 60 * 1000);
-          if (now.getTime() < cutoff.getTime()) return appt;
-          return normalizeAppointment({ ...appt, status: "no_show" }, procedures);
-        })
-      );
-    }, FIVE_MINUTES_MS);
-    return () => clearInterval(timer);
-  }, [noShowDelayMinutes, procedures]);
-
-  const getConflictsForDraft = useCallback((draft, ignoreId = null) => {
+  const getConflictsForDraft = useCallback((draft, ignoreId = null, opts = {}) => {
+    const calendarWeekStart = opts.calendarWeekStart;
+    const startDate = getAppointmentDate(Number(draft.day), Number(draft.start), calendarWeekStart);
+    const draftWeek = getSundayOfWeek(startDate);
     const candidate = {
       ...draft,
       day: Number(draft.day),
       start: Number(draft.start),
       duration: resolveDuration(draft, procedures),
     };
-    const conflicts = findConflicts(items, candidate, ignoreId);
+    const thisWeekItems = items.filter(
+      (item) => !item._weekStart || item._weekStart === draftWeek,
+    );
+    const conflicts = findConflicts(thisWeekItems, candidate, ignoreId);
     return {
       conflicts,
-      suggestedStart: findNearestAvailableStart(items, candidate),
+      suggestedStart: findNearestAvailableStart(thisWeekItems, candidate),
       duration: candidate.duration,
     };
   }, [items, procedures]);
@@ -305,20 +474,63 @@ export function AppointmentsProvider({ children }) {
     );
   }, [procedures]);
 
-  const bulkUpdateStatus = useCallback((ids, status) => {
-    setItems((arr) =>
-      arr.map((a) => (ids.includes(a.id) ? normalizeAppointment({ ...a, status }, procedures) : a))
-    );
-  }, [procedures]);
+  const bulkUpdateStatus = useCallback(async (ids, status) => {
+    await Promise.all(ids.map((id) => setAppointmentStatus(id, status)));
+  }, [setAppointmentStatus]);
 
-  const deleteAppointment = useCallback((id) => {
-    setItems((arr) => arr.filter((a) => a.id !== id));
-    showToast("تم حذف الموعد");
+  const deleteAppointment = useCallback(async (id) => {
+    try {
+      await api.deleteAppointment(id);
+      setItems((arr) => arr.filter((a) => a.id !== id));
+      showToast("تم حذف الموعد");
+    } catch (error) {
+      showToast(error?.message || "تعذر حذف الموعد");
+    }
   }, [showToast]);
+
+  const createNextSession = useCallback(async (id, payload = {}) => {
+    try {
+      const created = await api.createNextSession(id, payload);
+      const next = (created || []).map((row) => mapApiAppointment(row, procedures));
+      if (next.length) {
+        setItems((arr) => [...arr, ...next]);
+      }
+      showToast("تم إنشاء الجلسة القادمة");
+      return { ok: true, appointments: next };
+    } catch (error) {
+      showToast(error?.message || "تعذر إنشاء الجلسة القادمة");
+      return { ok: false, message: error?.message || "تعذر إنشاء الجلسة القادمة" };
+    }
+  }, [procedures, showToast]);
+
+  const addAppointmentMedia = useCallback(async (id, payload) => {
+    try {
+      const media = await api.addAppointmentMedia(id, payload);
+      setItems((arr) =>
+        arr.map((item) =>
+          item.id === id
+            ? normalizeAppointment(
+                {
+                  ...item,
+                  media: [...(item.media || []), media],
+                },
+                procedures
+              )
+            : item
+        )
+      );
+      showToast("تمت إضافة الصورة");
+      return { ok: true, media };
+    } catch (error) {
+      showToast(error?.message || "تعذر إضافة الصورة");
+      return { ok: false, message: error?.message || "تعذر إضافة الصورة" };
+    }
+  }, [procedures, showToast]);
 
   const value = useMemo(
     () => ({
       items,
+      refreshAppointments,
       addAppointment,
       updateAppointment,
       setAppointmentStatus,
@@ -328,11 +540,16 @@ export function AppointmentsProvider({ children }) {
       setReminderStatus,
       bulkUpdateStatus,
       deleteAppointment,
+      createNextSession,
+      addAppointmentMedia,
+      pendingStatusIds,
       noShowDelayMinutes,
       toast,
+      showToast,
     }),
     [
       items,
+      refreshAppointments,
       addAppointment,
       updateAppointment,
       setAppointmentStatus,
@@ -342,8 +559,12 @@ export function AppointmentsProvider({ children }) {
       setReminderStatus,
       bulkUpdateStatus,
       deleteAppointment,
+      createNextSession,
+      addAppointmentMedia,
+      pendingStatusIds,
       noShowDelayMinutes,
       toast,
+      showToast,
     ]
   );
 
