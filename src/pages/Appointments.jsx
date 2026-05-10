@@ -16,8 +16,12 @@ import ClinicPulse          from '../components/appointments/ClinicPulse.jsx';
 import AiBookingBar         from '../components/appointments/AiBookingBar.jsx';
 import SmartContextPanel    from '../components/appointments/SmartContextPanel.jsx';
 import NewAppointmentDialog from '../components/appointments/NewAppointmentDialog.jsx';
+import QueueBoard           from '../components/dashboard/QueueBoard.jsx';
+import DoctorQueueBoard     from '../components/dashboard/DoctorQueueBoard.jsx';
 
+/* RTL: first item sits visually on the right — طابور first for reception workflow */
 const VIEWS = [
+  { id: 'queue',  label: 'طابور', icon: '▥' },
   { id: 'day',    label: 'يوم',   icon: '⊞' },
   { id: 'week',   label: 'أسبوع', icon: '≡' },
   { id: 'agenda', label: 'جدول',  icon: '☰' },
@@ -258,6 +262,16 @@ export default function Appointments() {
     if (fresh) setSelectedAppt(prev => ({ ...prev, ...fresh }));
   }, [appointments, selectedAppt?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Deep-link: /appointments?view=queue (command palette)
+  useEffect(() => {
+    const v = searchParams.get('view');
+    if (!v || !['day', 'week', 'agenda', 'queue'].includes(v)) return;
+    setView(v);
+    const next = new URLSearchParams(searchParams);
+    next.delete('view');
+    setSearchParams(next, { replace: true });
+  }, [searchParams, setSearchParams]);
+
   // Handle URL params on mount + when params change
   useEffect(() => {
     if (!appointments.length) return;
@@ -287,7 +301,7 @@ export default function Appointments() {
   }, [searchParams, setSearchParams, appointments, dialogOpen]);
 
   return (
-    <div className="flex flex-col h-full bg-surface-base overflow-hidden">
+    <div className="flex flex-col flex-1 min-h-0 bg-surface-base overflow-hidden">
       {/* Navigation */}
       <CalendarNav
         view={view} setView={setView}
@@ -314,25 +328,44 @@ export default function Appointments() {
       )}
 
       {/* Body */}
-      <div className="flex flex-1 overflow-hidden">
-        {/* Left: Clinic Pulse sidebar */}
-        <ClinicPulse
-          currentDate={currentDate}
-          onChange={setCurrentDate}
-          appointments={enrichedAppts}
-          doctors={filteredDoctors}
-        />
+      <div className="flex flex-1 overflow-hidden min-h-0">
+        {/* Left: Clinic Pulse sidebar (hidden on طابور — full width for queue board) */}
+        {view !== 'queue' && (
+          <ClinicPulse
+            currentDate={currentDate}
+            onChange={setCurrentDate}
+            appointments={enrichedAppts}
+            doctors={filteredDoctors}
+          />
+        )}
 
-        {/* Center: Calendar views */}
+        {/* Center: Calendar views or reception queue (same stages as dashboard, per doctor when applicable) */}
         <AnimatePresence mode="wait">
           <motion.div
             key={view}
-            className="flex-1 flex flex-col overflow-hidden"
+            className="flex-1 flex flex-col overflow-hidden min-h-0"
             initial={{ opacity: 0, x: 6  }}
             animate={{ opacity: 1,  x: 0  }}
             exit={{    opacity: 0,  x: -6 }}
             transition={{ duration: 0.15 }}
           >
+            {view === 'queue' && (
+              <div className="flex-1 overflow-y-auto min-h-0 min-h-[min(480px,70vh)] p-3 md:p-4">
+                {isDoctor ? (
+                  <DoctorQueueBoard
+                    anchorDate={currentDate}
+                    title="طابور الطبيب"
+                  />
+                ) : (
+                  <QueueBoard
+                    anchorDate={currentDate}
+                    groupByDoctor={!isDoctor}
+                    doctors={filteredDoctors}
+                    title="طابور الاستقبال"
+                  />
+                )}
+              </div>
+            )}
             {view === 'day' && (
               <DayListView
                 currentDate={currentDate}

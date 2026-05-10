@@ -2,12 +2,12 @@ import { useMemo, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   ClockIcon, UserIcon, BeakerIcon, BanknotesIcon,
-  CheckBadgeIcon, ArrowRightIcon, PrinterIcon,
+  CheckBadgeIcon, ArrowRightIcon,
 } from '@heroicons/react/24/outline';
 import { useAppointments } from '../../context/AppointmentsContext.jsx';
 import { useUsers }        from '../../context/UsersContext.jsx';
 import { COLOR_MAP, colorFromDoctorId } from '../../utils/doctorColors.js';
-import { isSameDay, formatTime } from '../../utils/calendarUtils.js';
+import { isSameDay, formatTime, fmtDay } from '../../utils/calendarUtils.js';
 import InvoiceModal from '../appointments/InvoiceModal.jsx';
 
 // ─── Stage configuration ──────────────────────────────────────────────────
@@ -133,8 +133,10 @@ function PatientCard({ appt, stage, doctorMap, onAdvance, onInvoice, busy }) {
 
 // ─── Stage column ─────────────────────────────────────────────────────────
 
-function StageColumn({ stage, appts, doctorMap, onAdvance, onInvoice, busyId }) {
+function StageColumn({ stage, appts, doctorMap, onAdvance, onInvoice, busyId, compact }) {
   const Icon = stage.Icon;
+  const minH = compact ? 'min-h-[100px]' : 'min-h-[180px]';
+  const maxH = compact ? 'max-h-[280px]' : 'max-h-[420px]';
   return (
     <div className={`flex flex-col rounded-3xl ${stage.soft} ring-1 ${stage.ringSoft} overflow-hidden`}>
       {/* Header */}
@@ -154,7 +156,7 @@ function StageColumn({ stage, appts, doctorMap, onAdvance, onInvoice, busyId }) 
       </div>
 
       {/* Cards */}
-      <div className="flex-1 px-2.5 py-2.5 flex flex-col gap-2 min-h-[180px] max-h-[420px] overflow-y-auto">
+      <div className={`flex-1 px-2.5 py-2.5 flex flex-col gap-2 ${minH} ${maxH} overflow-y-auto`}>
         <AnimatePresence>
           {appts.length === 0 ? (
             <div className="flex-1 flex flex-col items-center justify-center py-8 gap-1.5 opacity-50">
@@ -178,53 +180,88 @@ function StageColumn({ stage, appts, doctorMap, onAdvance, onInvoice, busyId }) 
   );
 }
 
-// ─── Main QueueBoard ──────────────────────────────────────────────────────
+// ─── Build stage buckets from a flat appointment list ─────────────────────
 
-export default function QueueBoard() {
+function stageBuckets(activeList) {
+  const out = {};
+  STAGES.forEach((s) => {
+    out[s.key] = activeList.filter((a) => s.statuses.includes(a.status));
+  });
+  return out;
+}
+
+// ─── Main QueueBoard ──────────────────────────────────────────────────────
+/** @typedef {{ id: string, name?: string }} DoctorLike */
+
+/**
+ * @param {{
+ *   anchorDate?: Date,
+ *   groupByDoctor?: boolean,
+ *   doctors?: DoctorLike[] | null,
+ *   title?: string,
+ *   subtitle?: string,
+ * }} [props]
+ */
+export default function QueueBoard({
+  anchorDate,
+  groupByDoctor = false,
+  doctors = null,
+  title = 'لوحة سير المرضى',
+  subtitle,
+}) {
   const { items: appts, setAppointmentStatus } = useAppointments();
   const { users } = useUsers();
-  const today = new Date();
-  const [busyId,      setBusyId]      = useState(null);
+  const resolvedDate = useMemo(() => anchorDate ?? new Date(), [anchorDate]);
+  const compact = groupByDoctor;
+  const [busyId, setBusyId] = useState(null);
   const [invoiceAppt, setInvoiceAppt] = useState(null);
 
-  // Today, not-yet-paid appointments
-  const todayActive = useMemo(() => {
+  const dayActiveAll = useMemo(() => {
     return appts
-      .filter(a => {
+      .filter((a) => {
         const d = a.appointmentStart ? new Date(a.appointmentStart) : null;
-        return d && isSameDay(d, today);
+        return d && isSameDay(d, resolvedDate);
       })
-      .filter(a => !['paid', 'cancelled', 'no_show'].includes(a.status))
+      .filter((a) => !['paid', 'cancelled', 'no_show'].includes(a.status))
       .sort((a, b) => a.start - b.start);
-  }, [appts]);
+  }, [appts, resolvedDate]);
 
-  const doctorMap = useMemo(() =>
-    Object.fromEntries(users.filter(u => u.role === 'doctor').map(u => [u.id, u])),
+  const doctorMap = useMemo(
+    () => Object.fromEntries(users.filter((u) => u.role === 'doctor').map((u) => [u.id, u])),
     [users]
   );
 
-  // Group by stage
-  const stageAppts = useMemo(() => {
-    const out = {};
-    STAGES.forEach(s => { out[s.key] = todayActive.filter(a => s.statuses.includes(a.status)); });
-    return out;
-  }, [todayActive]);
+  const doctorSections = useMemo(() => {
+    if (!groupByDoctor) return [{ id: null, name: null, active: dayActiveAll }];
+    const list = doctors?.length ? doctors : [];
+    return list.map((d) => ({
+      id: d.id,
+      name: d.name,
+      active: dayActiveAll.filter((a) => a.doctor === d.id),
+    }));
+  }, [groupByDoctor, doctors, dayActiveAll]);
 
-  // Stats: how many done today + total today
-  const doneToday = useMemo(() =>
-    appts.filter(a => {
-      const d = a.appointmentStart ? new Date(a.appointmentStart) : null;
-      return d && isSameDay(d, today) && a.status === 'paid';
-    }).length,
-    [appts]
+  const doneCount = useMemo(
+    () =>
+      appts.filter((a) => {
+        const d = a.appointmentStart ? new Date(a.appointmentStart) : null;
+        return d && isSameDay(d, resolvedDate) && a.status === 'paid';
+      }).length,
+    [appts, resolvedDate]
   );
-  const totalToday = todayActive.length + doneToday;
+  const totalDay = dayActiveAll.length + doneCount;
 
-  // ── Advance status ────────────────────────────────────────────────────
+  const defaultSubtitle = groupByDoctor
+    ? `طابور لكل طبيب ليوم ${fmtDay(resolvedDate)} — من التسجيل حتى الفاتورة`
+    : 'تتبّع كل مريض من الانتظار حتى الدفع — لحظة بلحظة';
+
   const advance = async (appt, nextStatus) => {
     setBusyId(appt.id);
-    try { await setAppointmentStatus(appt.id, nextStatus); }
-    finally { setBusyId(null); }
+    try {
+      await setAppointmentStatus(appt.id, nextStatus);
+    } finally {
+      setBusyId(null);
+    }
   };
 
   const openInvoice = (appt) => setInvoiceAppt(appt);
@@ -235,7 +272,9 @@ export default function QueueBoard() {
     try {
       await setAppointmentStatus(invoiceAppt.id, 'paid');
       setInvoiceAppt(null);
-    } finally { setBusyId(null); }
+    } finally {
+      setBusyId(null);
+    }
   };
 
   return (
@@ -246,44 +285,72 @@ export default function QueueBoard() {
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.22 }}
       >
-        {/* Header */}
         <div className="px-5 py-4 border-b border-ink-line/20 bg-gradient-to-l from-primary-soft/15 to-surface-base flex items-center justify-between gap-3 flex-wrap">
           <div>
-            <h2 className="text-[16px] font-bold text-ink-default">لوحة سير المرضى</h2>
-            <p className="text-[11px] text-ink-mute mt-0.5">
-              تتبّع كل مريض من الانتظار حتى الدفع — لحظة بلحظة
-            </p>
+            <h2 className="text-[16px] font-bold text-ink-default">{title}</h2>
+            <p className="text-[11px] text-ink-mute mt-0.5">{subtitle ?? defaultSubtitle}</p>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
-            <Pill icon={ClockIcon}     count={totalToday - doneToday} label="نشط الآن"  cls="bg-primary-soft/40 text-primary" />
-            <Pill icon={CheckBadgeIcon} count={doneToday}              label="منجز اليوم" cls="bg-emerald-50 text-emerald-700" />
+            <Pill
+              icon={ClockIcon}
+              count={totalDay - doneCount}
+              label="نشط الآن"
+              cls="bg-primary-soft/40 text-primary"
+            />
+            <Pill
+              icon={CheckBadgeIcon}
+              count={doneCount}
+              label="منجز اليوم"
+              cls="bg-emerald-50 text-emerald-700"
+            />
           </div>
         </div>
 
-        {/* 4-stage kanban */}
-        <div className="p-4 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
-          {STAGES.map(stage => (
-            <StageColumn
-              key={stage.key}
-              stage={stage}
-              appts={stageAppts[stage.key] || []}
-              doctorMap={doctorMap}
-              onAdvance={advance}
-              onInvoice={openInvoice}
-              busyId={busyId}
-            />
-          ))}
+        <div className="p-4 flex flex-col gap-6">
+          {groupByDoctor && doctorSections.length === 0 && (
+            <p className="text-[12px] text-ink-mute text-center py-6">لا أطباء لعرض الطابور</p>
+          )}
+
+          {doctorSections.map((section) => {
+            const stageAppts = stageBuckets(section.active);
+            const showDoctorHeader = groupByDoctor && section.id != null;
+
+            return (
+              <div key={section.id || 'all'} className="flex flex-col gap-3">
+                {showDoctorHeader && (
+                  <div className="flex items-center gap-2 px-1">
+                    <span className="text-[13px] font-bold text-ink-default">{section.name}</span>
+                    <span className="text-[10px] text-ink-mute font-semibold tabular-nums">
+                      {section.active.length} نشط
+                    </span>
+                  </div>
+                )}
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
+                  {STAGES.map((stage) => (
+                    <StageColumn
+                      key={`${section.id || 'all'}-${stage.key}`}
+                      stage={stage}
+                      appts={stageAppts[stage.key] || []}
+                      doctorMap={doctorMap}
+                      onAdvance={advance}
+                      onInvoice={openInvoice}
+                      busyId={busyId}
+                      compact={compact}
+                    />
+                  ))}
+                </div>
+              </div>
+            );
+          })}
         </div>
 
-        {/* Empty all */}
-        {totalToday === 0 && (
+        {totalDay === 0 && (
           <div className="px-5 py-6 text-center text-ink-mute text-[12px] border-t border-ink-line/20">
-            🎉 لا مرضى مجدولون اليوم — اضغط على "موعد جديد" لبدء الحجز
+            لا مواعيد في هذا اليوم — استخدم «موعد جديد» لإضافة حجز
           </div>
         )}
       </motion.section>
 
-      {/* Invoice modal */}
       <AnimatePresence>
         {invoiceAppt && (
           <InvoiceModal

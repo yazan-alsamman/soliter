@@ -146,13 +146,13 @@ export default function AppLayout() {
           keywords: "new patient add مريض",
           run: () => navigate("/patients?create=1"),
         },
-        role === "admin" && {
+        ["admin", "receptionist", "doctor"].includes(role) && {
           id: "go-queue",
           group: "إجراءات سريعة",
           label: "الذهاب للوحة الطابور اللحظي",
-          description: "فتح صفحة المواعيد مع الطابور",
+          description: "فتح تبويب الطابور في المواعيد",
           keywords: "queue طابور waiting",
-          run: () => navigate("/appointments"),
+          run: () => navigate("/appointments?view=queue"),
         },
       ].filter(Boolean),
     [can, navigate, role, isAuthenticated]
@@ -188,9 +188,9 @@ export default function AppLayout() {
           }}
         >
           <Topbar onOpenCommandPalette={() => setCommandOpen(true)} />
-          <main className="flex-1 min-h-0 overflow-y-auto">
-            {/* Plain wrapper: avoids rare stuck opacity:0 from page-enter motion before paint */}
-            <div className="px-6 lg:px-10 py-6 max-w-[1440px] mx-auto w-full">
+          <main className="flex-1 min-h-0 overflow-y-auto flex flex-col">
+            {/* Flex column so pages (e.g. Appointments طابور) can use flex-1 / min-h-0 and fill the viewport */}
+            <div className="flex-1 flex flex-col min-h-0 px-6 lg:px-10 py-6 max-w-[1440px] mx-auto w-full">
               <Outlet />
             </div>
           </main>

@@ -139,6 +139,11 @@ function mapApiAppointment(appt, procedures) {
     appointmentServices.length > 0
       ? appointmentServices.reduce((sum, x) => sum + Number(x.lineTotal || 0), 0)
       : Number(appt.service?.price || 0);
+  const appointmentServiceLines = appointmentServices.map((x) => ({
+    name: x.service?.name || "خدمة",
+    qty: Number(x.quantity) > 0 ? Number(x.quantity) : 1,
+    lineTotal: Number(x.lineTotal || 0),
+  }));
   return normalizeAppointment(
     {
       id: appt.id,
@@ -167,6 +172,7 @@ function mapApiAppointment(appt, procedures) {
       overbooked: !!appt.overbooked,
       _weekStart: getSundayOfWeek(startDate),
       appointmentStart: appt.startTime,
+      appointmentServiceLines,
     },
     procedures
   );

@@ -10,7 +10,6 @@ import {
   CreditCardIcon,
   CheckCircleIcon,
   PhoneIcon,
-  ArrowPathIcon,
 } from "@heroicons/react/24/outline";
 import { ROLES, useAuth } from "../context/AuthContext.jsx";
 import { useAppointments } from "../context/AppointmentsContext.jsx";
@@ -19,6 +18,7 @@ import { useUsers } from "../context/UsersContext.jsx";
 import { usePatients } from "../context/PatientsContext.jsx";
 import { useAppDialog } from "../context/AppDialogContext.jsx";
 import QueueBoard from "../components/dashboard/QueueBoard.jsx";
+import DoctorQueueBoard from "../components/dashboard/DoctorQueueBoard.jsx";
 import {
   ResponsiveContainer,
   LineChart,
@@ -105,6 +105,18 @@ export default function Dashboard() {
     );
   }
 
+  if (role === ROLES.DOCTOR) {
+    return (
+      <DoctorDashboard
+        user={user}
+        today={today}
+        queue={queue}
+        users={users}
+        refreshAppointments={refreshAppointments}
+      />
+    );
+  }
+
   if (role === ROLES.RECEPTIONIST) {
     return (
       <ReceptionistDashboard
@@ -125,6 +137,43 @@ export default function Dashboard() {
       {role === ROLES.ADMIN && (
         <AdminAnalyticsSection operationalPressure={operationalPressure} />
       )}
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   DOCTOR DASHBOARD — same queue board as reception, scoped to this doctor
+═══════════════════════════════════════════════════════════════════ */
+
+function DoctorDashboard({ user, today, queue, users, refreshAppointments }) {
+  const { invoices } = useBilling();
+
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      refreshAppointments().catch(() => {});
+    }, 15000);
+    return () => clearInterval(id);
+  }, [refreshAppointments]);
+
+  return (
+    <div className="space-y-5">
+      <motion.div
+        initial={{ opacity: 0, y: 8 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="card-pad"
+      >
+        <h2 className="h3">لوحة الطبيب — {user?.name ?? ""}</h2>
+        <p className="text-sm text-ink-mute mt-1 leading-relaxed">
+          ثلاث مراحل خاصة بالطبيب: مرضى وضعهم الاستقبال كـ «وصل»، ثم جلستك، ثم مراجعة الفاتورة وإرسال تنبيه للاستقبال
+          لإتمام التحصيل.
+        </p>
+      </motion.div>
+
+      <OperationalKpis queue={queue} todayCount={today.length} today={today} invoices={invoices} />
+
+      <DoctorQueueBoard title="طابور مرضاك اليوم" />
+
+      <TodayScheduleCard today={today} users={users} />
     </div>
   );
 }
@@ -180,7 +229,6 @@ function ReceptionistDashboard({ today, queue, users, setAppointmentStatus, refr
     <div className="space-y-5">
       <NowHeroCard
         today={today}
-        queue={queue}
         users={users}
         setAppointmentStatus={setAppointmentStatus}
         refreshAppointments={refreshAppointments}
@@ -203,7 +251,7 @@ function ReceptionistDashboard({ today, queue, users, setAppointmentStatus, refr
 }
 
 /* ── NOW Hero Card ───────────────────────────────────────────────── */
-function NowHeroCard({ today, queue, users, setAppointmentStatus, refreshAppointments }) {
+function NowHeroCard({ today, users, setAppointmentStatus, refreshAppointments }) {
   const navigate = useNavigate();
   const { alert } = useAppDialog();
   const { patients } = usePatients();
