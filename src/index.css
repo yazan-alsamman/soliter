@@ -211,10 +211,7 @@ html,
 
 @font-face {
   font-family: "29LT Azur";
-  src:
-    local("29LT Azur"),
-    local("29LTAzur"),
-    url("/fonts/29LTAzur-Regular.woff2") format("woff2");
+  src: local("29LT Azur"), local("29LTAzur");
   font-style: normal;
   font-weight: 400;
   font-display: swap;
@@ -222,10 +219,7 @@ html,
 
 @font-face {
   font-family: "29LT Azur";
-  src:
-    local("29LT Azur Medium"),
-    local("29LTAzur-Medium"),
-    url("/fonts/29LTAzur-Medium.woff2") format("woff2");
+  src: local("29LT Azur Medium"), local("29LTAzur-Medium");
   font-style: normal;
   font-weight: 500;
   font-display: swap;
@@ -233,10 +227,7 @@ html,
 
 @font-face {
   font-family: "29LT Azur";
-  src:
-    local("29LT Azur Bold"),
-    local("29LTAzur-Bold"),
-    url("/fonts/29LTAzur-Bold.woff2") format("woff2");
+  src: local("29LT Azur Bold"), local("29LTAzur-Bold");
   font-style: normal;
   font-weight: 700;
   font-display: swap;

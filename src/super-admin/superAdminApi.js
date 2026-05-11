@@ -1,16 +1,5 @@
 import { translateUserFacingMessage } from "../utils/userFacingError.js";
-
-function resolveApiBase() {
-  const explicit = import.meta.env.VITE_API_BASE_URL?.trim();
-  if (explicit) return explicit.replace(/\/+$/, "");
-  if (import.meta.env.DEV) return "/api";
-  const base = import.meta.env.BASE_URL || "/";
-  const prefix = base === "/" ? "" : base.replace(/\/$/, "");
-  const joined = `${prefix}/api`.replace(/\/+/g, "/");
-  return joined || "/api";
-}
-
-const API_BASE = resolveApiBase();
+import { getApiBaseUrl } from "../utils/resolveApiBaseUrl.js";
 export const SUPER_TOKEN_KEY = "mediflow_super_token";
 export const SUPER_USER_KEY = "mediflow_super_user";
 
@@ -46,7 +35,7 @@ async function request(path, options = {}) {
   };
   let response;
   try {
-    response = await fetch(`${API_BASE}${path}`, {
+    response = await fetch(`${getApiBaseUrl()}${path}`, {
       method: options.method || "GET",
       headers,
       body: options.body ? JSON.stringify(options.body) : undefined,

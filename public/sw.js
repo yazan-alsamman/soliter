@@ -1,6 +1,6 @@
 /* MediFlow Patient Portal — Service Worker v1 */
 
-const CACHE_VERSION = 'mediflow-portal-v1';
+const CACHE_VERSION = 'mediflow-portal-v2';
 const STATIC_CACHE  = `${CACHE_VERSION}-static`;
 const API_CACHE     = `${CACHE_VERSION}-api`;
 
@@ -40,6 +40,14 @@ self.addEventListener('fetch', (event) => {
 
   const url = new URL(request.url);
 
+  /* Let the browser handle navigations (SPA routes); avoids bad cache matches and invalid SW responses. */
+  if (request.mode === 'navigate' || (request.headers.get('Accept') || '').includes('text/html')) {
+    event.respondWith(
+      fetch(request).catch(() => caches.match(request).then((c) => c || Response.error()))
+    );
+    return;
+  }
+
   /* API calls: network-first, skip cache on failure */
   if (url.pathname.startsWith('/api/')) {
     event.respondWith(
@@ -51,7 +59,9 @@ self.addEventListener('fetch', (event) => {
           }
           return response;
         })
-        .catch(() => caches.match(request))
+        .catch(() =>
+          caches.match(request).then((c) => c || Response.error())
+        )
     );
     return;
   }
@@ -77,7 +87,7 @@ self.addEventListener('fetch', (event) => {
         })
         .catch(() => cached);
 
-      return cached || networkFetch;
+      return cached || networkFetch || Response.error();
     })
   );
 });

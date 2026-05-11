@@ -1,22 +1,8 @@
 import { translateUserFacingMessage } from "../utils/userFacingError.js";
-
-/** Dev: same-origin `/api` → Vite proxies to Nest (see vite.config.js). Set VITE_API_BASE_URL to override. */
-function resolveApiBase() {
-  const explicit = import.meta.env.VITE_API_BASE_URL?.trim();
-  if (explicit) return explicit.replace(/\/+$/, "");
-  if (import.meta.env.DEV) return "/api";
-  const base = import.meta.env.BASE_URL || "/";
-  const prefix = base === "/" ? "" : base.replace(/\/$/, "");
-  const joined = `${prefix}/api`.replace(/\/+/g, "/");
-  return joined || "/api";
-}
-
-const API_BASE = resolveApiBase();
+import { getApiBaseUrl } from "../utils/resolveApiBaseUrl.js";
 
 /** Base URL for manual fetch (reachability probe). Same rules as `request()`. */
-export function getApiBaseUrl() {
-  return API_BASE;
-}
+export { getApiBaseUrl };
 
 const TOKEN_KEY = "mediflow_token";
 const USER_KEY = "mediflow_user";
@@ -88,7 +74,7 @@ export async function probeBackendReachable() {
   const ctrl = new AbortController();
   const tid = window.setTimeout(() => ctrl.abort(), 4500);
   try {
-    const res = await fetch(`${API_BASE}/sync/status`, {
+    const res = await fetch(`${getApiBaseUrl()}/sync/status`, {
       method: "GET",
       headers: {
         "Content-Type": "application/json",
@@ -118,7 +104,7 @@ async function request(path, options = {}) {
   };
   let response;
   try {
-    response = await fetch(`${API_BASE}${path}`, {
+    response = await fetch(`${getApiBaseUrl()}${path}`, {
       method: options.method || "GET",
       headers,
       body: options.body ? JSON.stringify(options.body) : undefined,
@@ -165,7 +151,7 @@ export async function* copilotAskStream(payload) {
   const sendBearer = Boolean(token);
   let response;
   try {
-    response = await fetch(`${API_BASE}/ai/copilot/stream`, {
+    response = await fetch(`${getApiBaseUrl()}/ai/copilot/stream`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

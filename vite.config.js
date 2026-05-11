@@ -19,7 +19,20 @@ export default defineConfig(({ mode }) => {
 
   return {
     base,
-    plugins: [react()],
+    plugins: [
+      react(),
+      {
+        name: "inject-mediflow-api-meta",
+        transformIndexHtml(html) {
+          const raw = (env.VITE_API_BASE_URL || "").trim();
+          const escaped = raw.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
+          return html.replace(
+            '<meta name="mediflow-api-base" content="" />',
+            `<meta name="mediflow-api-base" content="${escaped}" />`,
+          );
+        },
+      },
+    ],
     resolve: {
       dedupe: ["react", "react-dom"],
       alias: {
