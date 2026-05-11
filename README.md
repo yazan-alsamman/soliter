@@ -52,6 +52,21 @@ Multiple frontends: comma-separated list. After changing env vars, restart the N
 
 The SPA reads the API base from **`/config.json`** (`apiBase`) or from **`VITE_API_BASE_URL`** at build time; see `public/config.example.json`.
 
+## Hostinger (Node.js web app + Git) — Vite build
+
+In hPanel → Node.js app → build settings (or edit after import):
+
+| Field | Value |
+| ----- | ----- |
+| Framework | **Vite** (or **Other** if auto-detect fails) |
+| Install command | `npm install` (or `npm ci` if you rely on `package-lock.json`) |
+| Build command | `npm run build` |
+| Output / publish directory | **`dist`** |
+
+- **Repository root** must be the folder that contains this `package.json` (not a parent monorepo folder unless you set “Root directory” to the subfolder).
+- Use **Node.js 20** or newer (see `.nvmrc`). Electron is **optional** so installs do not fail when the platform skips the desktop binary.
+- If the dashboard shows a generic “build failed” message, open **Deployments → latest deployment → full build log**; the real error is always in that log.
+
 ## Roles & how to switch
 
 A **role pill** is rendered in the topbar — click any of:
