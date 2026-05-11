@@ -26,12 +26,20 @@ Open the URL printed in the terminal (default `http://localhost:5173`).
 
 ## Production: frontend and API on different domains (CORS)
 
-If the React app is on one host (for example `https://app.example.com`) and the Nest API on another (`https://api.example.com`), the browser sends a **cross-origin** request. The API must respond with CORS headers, otherwise login and all `fetch` calls fail with a preflight error.
+If the React app is on one host and the Nest API on another, the browser sends a **cross-origin** request. The API must answer the **OPTIONS preflight** with `Access-Control-Allow-Origin` (and related headers). If you see *“No 'Access-Control-Allow-Origin' header”*, the backend is not applying CORS for that exact browser origin.
 
-In **`main.ts`** of the Nest API (after `NestFactory.create`):
+### Checklist (Hostinger)
+
+1. **Exact origin** — Copy the frontend URL from the address bar (scheme + host, no path). Hostinger free subdomains often differ by one letter, e.g. **`lightslategray-…`** vs **`lightslategrey-…`**. The value in the API env must match **character-for-character**. You can list several origins separated by commas.
+2. **Env variable name** — Your Nest code must read the same variable you set in hPanel. Common names are **`CORS_ORIGINS`** or **`FRONTEND_ORIGINS`**. If the repo uses `process.env.CORS_ORIGINS` but you only set `FRONTEND_ORIGINS`, CORS will stay broken.
+3. **Restart the API** after saving environment variables on the **API** website (darkgoldenrod…), not only the frontend.
+4. **Frontend build:** `VITE_API_BASE_URL` must include the global API prefix, usually **`…/api`** (example: `https://darkgoldenrod-mosquito-506155.hostingersite.com/api`). Without `/api`, paths will be wrong.
+
+In **`main.ts`** of the Nest API (after `NestFactory.create`), wire the variable your project actually uses, for example:
 
 ```ts
-const origins = (process.env.FRONTEND_ORIGINS ?? "")
+const raw = process.env.CORS_ORIGINS ?? process.env.FRONTEND_ORIGINS ?? "";
+const origins = raw
   .split(",")
   .map((s) => s.trim())
   .filter(Boolean);
@@ -44,11 +52,9 @@ app.enableCors({
 });
 ```
 
-Set **`FRONTEND_ORIGINS`** on the API host to your real frontend URL (no trailing slash), for example:
+Example hPanel value for **`CORS_ORIGINS`** / **`FRONTEND_ORIGINS`** (adjust host to match your real frontend URL):
 
-`FRONTEND_ORIGINS=https://lightslategrey-hamster-508054.hostingersite.com`
-
-Multiple frontends: comma-separated list. After changing env vars, restart the Nest process.
+`https://lightslategray-hamster-508054.hostingersite.com`
 
 The SPA reads the API base from **`/config.json`** (`apiBase`) or from **`VITE_API_BASE_URL`** at build time; see **`public/config.example.json`** (includes the deployed MediFlow API host — copy into `public/config.json` before a production build, or overwrite `dist/config.json` after build).
 
