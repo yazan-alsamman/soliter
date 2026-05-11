@@ -24,6 +24,34 @@ npm run dev
 
 Open the URL printed in the terminal (default `http://localhost:5173`).
 
+## Production: frontend and API on different domains (CORS)
+
+If the React app is on one host (for example `https://app.example.com`) and the Nest API on another (`https://api.example.com`), the browser sends a **cross-origin** request. The API must respond with CORS headers, otherwise login and all `fetch` calls fail with a preflight error.
+
+In **`main.ts`** of the Nest API (after `NestFactory.create`):
+
+```ts
+const origins = (process.env.FRONTEND_ORIGINS ?? "")
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
+
+app.enableCors({
+  origin: origins.length ? origins : true,
+  credentials: true,
+  methods: ["GET", "HEAD", "PUT", "PATCH", "POST", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization", "X-Tenant-Id"],
+});
+```
+
+Set **`FRONTEND_ORIGINS`** on the API host to your real frontend URL (no trailing slash), for example:
+
+`FRONTEND_ORIGINS=https://lightslategrey-hamster-508054.hostingersite.com`
+
+Multiple frontends: comma-separated list. After changing env vars, restart the Nest process.
+
+The SPA reads the API base from **`/config.json`** (`apiBase`) or from **`VITE_API_BASE_URL`** at build time; see `public/config.example.json`.
+
 ## Roles & how to switch
 
 A **role pill** is rendered in the topbar — click any of:

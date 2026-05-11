@@ -1,6 +1,6 @@
 /* MediFlow Patient Portal — Service Worker v1 */
 
-const CACHE_VERSION = 'mediflow-portal-v2';
+const CACHE_VERSION = 'mediflow-portal-v3';
 const STATIC_CACHE  = `${CACHE_VERSION}-static`;
 const API_CACHE     = `${CACHE_VERSION}-api`;
 
@@ -39,6 +39,9 @@ self.addEventListener('fetch', (event) => {
   if (request.method !== 'GET') return;
 
   const url = new URL(request.url);
+
+  /* Do not intercept cross-origin requests (e.g. API on another Hostinger subdomain). Let the browser apply CORS normally. */
+  if (url.origin !== self.location.origin) return;
 
   /* Let the browser handle navigations (SPA routes); avoids bad cache matches and invalid SW responses. */
   if (request.mode === 'navigate' || (request.headers.get('Accept') || '').includes('text/html')) {
@@ -85,9 +88,9 @@ self.addEventListener('fetch', (event) => {
           }
           return response;
         })
-        .catch(() => cached);
+        .catch(() => cached || Response.error());
 
-      return cached || networkFetch || Response.error();
+      return cached || networkFetch;
     })
   );
 });
