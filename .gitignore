@@ -13,6 +13,11 @@ dist
 dist-ssr
 dist-electron
 *.local
+.env
+.env.*.local
+
+# Cursor MCP (real tokens — never commit; use .cursor/mcp.json.example as template)
+.cursor/mcp.json
 
 # Editor directories and files
 .vscode/*

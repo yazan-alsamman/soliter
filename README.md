@@ -50,7 +50,7 @@ Set **`FRONTEND_ORIGINS`** on the API host to your real frontend URL (no trailin
 
 Multiple frontends: comma-separated list. After changing env vars, restart the Nest process.
 
-The SPA reads the API base from **`/config.json`** (`apiBase`) or from **`VITE_API_BASE_URL`** at build time; see `public/config.example.json`.
+The SPA reads the API base from **`/config.json`** (`apiBase`) or from **`VITE_API_BASE_URL`** at build time; see **`public/config.example.json`** (includes the deployed MediFlow API host — copy into `public/config.json` before a production build, or overwrite `dist/config.json` after build).
 
 ## Hostinger (Node.js web app + Git) — Vite build
 
@@ -66,6 +66,7 @@ In hPanel → Node.js app → build settings (or edit after import):
 - **Repository root** must be the folder that contains this `package.json` (not a parent monorepo folder unless you set “Root directory” to the subfolder).
 - Use **Node.js 20** or newer (see `.nvmrc`). Electron is **optional** so installs do not fail when the platform skips the desktop binary.
 - If the dashboard shows a generic “build failed” message, open **Deployments → latest deployment → full build log**; the real error is always in that log.
+- **Hostinger MCP in Cursor:** use **`.cursor/mcp.json.example`** — copy its `mcpServers` block into Cursor’s MCP config, set `API_TOKEN` to a token from hPanel → Dev tools → API. **Do not commit** a real `mcp.json` (it is listed in `.gitignore`).
 
 ## Roles & how to switch
 
