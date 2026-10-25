@@ -50,22 +50,25 @@ export class InvoicesService {
           : undefined,
     });
 
-    return this.prisma.$transaction(async (tx) => {
-      const [items, total] = await Promise.all([
-        tx.invoice.findMany({
-          where,
-          skip: (page - 1) * limit,
-          take: limit,
-          orderBy: { createdAt: 'desc' },
-          include: { patient: true, appointment: true, payments: true },
-        }),
-        tx.invoice.count({ where }),
-      ]);
-      return {
-        items,
-        meta: { page, limit, total, pages: Math.max(1, Math.ceil(total / limit)) },
-      };
-    });
+    return this.prisma.$transaction(
+      async (tx) => {
+        const [items, total] = await Promise.all([
+          tx.invoice.findMany({
+            where,
+            skip: (page - 1) * limit,
+            take: limit,
+            orderBy: { createdAt: 'desc' },
+            include: { patient: true, appointment: true, payments: true },
+          }),
+          tx.invoice.count({ where }),
+        ]);
+        return {
+          items,
+          meta: { page, limit, total, pages: Math.max(1, Math.ceil(total / limit)) },
+        };
+      },
+      { timeout: 20_000 },
+    );
   }
 
   async findOne(auth: AuthContext, id: string) {

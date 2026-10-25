@@ -18,6 +18,8 @@ function stripPoolUnfriendlyQueryParams(connectionString: string): string {
     'socket_timeout',
     'max_idle_connection_lifetime',
     'connect_timeout',
+    // Node `pg` + Neon: channel binding often causes TLS disconnects on cold start
+    'channel_binding',
   ]) {
     params.delete(key);
   }
@@ -42,6 +44,8 @@ function isTransientConnectionError(e: unknown): boolean {
   const msg = String(err.message ?? '');
   if (/Server has closed the connection/i.test(msg)) return true;
   if (/Connection terminated unexpectedly/i.test(msg)) return true;
+  if (/Connection terminated due to connection timeout/i.test(msg)) return true;
+  if (/timeout exceeded when trying to connect/i.test(msg)) return true;
   return false;
 }
 
@@ -73,7 +77,7 @@ function createClient(logger: Logger): PrismaClient {
       connectionString,
       max: 15,
       idleTimeoutMillis: 60_000,
-      connectionTimeoutMillis: 15_000,
+      connectionTimeoutMillis: 30_000,
       keepAlive: true,
       keepAliveInitialDelayMillis: 10_000,
       maxLifetimeSeconds: 600,
@@ -118,27 +122,45 @@ export function createPrismaService(): PrismaService {
   return Object.assign(db, {
     async onModuleInit() {
       const target = describeDatabaseTarget(rawUrl);
-      try {
-        await db.$connect();
-        await db.$queryRaw`SELECT 1`;
-        logger.log(`Database connected (${target})`);
-        if (/\/template1(\?|$)/i.test(rawUrl)) {
+      const maxAttempts = 8;
+      let lastErr: unknown;
+      for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+        try {
+          await db.$connect();
+          await db.$queryRaw`SELECT 1`;
+          logger.log(`Database connected (${target})`);
+          if (/\/template1(\?|$)/i.test(rawUrl)) {
+            logger.warn(
+              'DATABASE_URL uses database "template1". Use a dedicated database name (e.g. mediflow) for application data.',
+            );
+          }
+          return;
+        } catch (err) {
+          lastErr = err;
+          const waitMs = Math.min(8_000, 500 * 2 ** (attempt - 1));
           logger.warn(
-            'DATABASE_URL uses database "template1". Use a dedicated database name (e.g. mediflow) for application data.',
+            `PostgreSQL not ready at ${target} (attempt ${attempt}/${maxAttempts}); retrying in ${waitMs}ms…`,
           );
+          try {
+            await db.$disconnect();
+          } catch {
+            /* ignore */
+          }
+          await new Promise((r) => setTimeout(r, waitMs));
         }
-      } catch (err) {
-        const code =
-          err && typeof err === 'object' && 'code' in err ? String((err as NodeJS.ErrnoException).code) : '';
-        const hint =
-          code === 'ECONNREFUSED'
-            ? ' Nothing is listening on that host/port — start PostgreSQL (e.g. from Medi_BackEnd run: docker compose up -d).'
-            : '';
-        logger.error(
-          `Cannot reach PostgreSQL at ${target}.${hint} Verify Medi_BackEnd/.env DATABASE_URL.`,
-        );
-        throw err;
       }
+      const code =
+        lastErr && typeof lastErr === 'object' && 'code' in lastErr
+          ? String((lastErr as NodeJS.ErrnoException).code)
+          : '';
+      const hint =
+        code === 'ECONNREFUSED'
+          ? ' Nothing is listening on that host/port — start PostgreSQL (e.g. from Medi_BackEnd run: docker compose up -d).'
+          : '';
+      logger.error(
+        `Cannot reach PostgreSQL at ${target}.${hint} Verify Medi_BackEnd/.env DATABASE_URL.`,
+      );
+      throw lastErr;
     },
     async onModuleDestroy() {
       await db.$disconnect();

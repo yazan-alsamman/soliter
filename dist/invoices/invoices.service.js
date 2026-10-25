@@ -58,7 +58,7 @@ let InvoicesService = InvoicesService_1 = class InvoicesService {
                 items,
                 meta: { page, limit, total, pages: Math.max(1, Math.ceil(total / limit)) },
             };
-        });
+        }, { timeout: 20_000 });
     }
     async findOne(auth, id) {
         const invoice = await this.prisma.invoice.findFirst({

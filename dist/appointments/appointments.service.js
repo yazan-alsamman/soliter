@@ -112,7 +112,7 @@ let AppointmentsService = AppointmentsService_1 = class AppointmentsService {
                     pages: Math.max(1, Math.ceil(total / limit)),
                 },
             };
-        });
+        }, { timeout: 20_000 });
     }
     async findOne(auth, id) {
         const appt = await this.prisma.appointment.findFirst({

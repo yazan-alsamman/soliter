@@ -106,35 +106,38 @@ export class AppointmentsService {
         : undefined,
     });
 
-    return this.prisma.$transaction(async (tx) => {
-      const [items, total] = await Promise.all([
-        tx.appointment.findMany({
-          where,
-          skip: (page - 1) * limit,
-          take: limit,
-          orderBy: { startTime: 'asc' },
-          include: {
-            patient: true,
-            doctor: true,
-            service: true,
-            invoices: { orderBy: { createdAt: 'desc' } },
-            session: true,
-            appointmentServices: { include: { service: true } },
-            media: true,
+    return this.prisma.$transaction(
+      async (tx) => {
+        const [items, total] = await Promise.all([
+          tx.appointment.findMany({
+            where,
+            skip: (page - 1) * limit,
+            take: limit,
+            orderBy: { startTime: 'asc' },
+            include: {
+              patient: true,
+              doctor: true,
+              service: true,
+              invoices: { orderBy: { createdAt: 'desc' } },
+              session: true,
+              appointmentServices: { include: { service: true } },
+              media: true,
+            },
+          }),
+          tx.appointment.count({ where }),
+        ]);
+        return {
+          items: items.map((row) => withLegacyInvoice(row)!),
+          meta: {
+            page,
+            limit,
+            total,
+            pages: Math.max(1, Math.ceil(total / limit)),
           },
-        }),
-        tx.appointment.count({ where }),
-      ]);
-      return {
-        items: items.map((row) => withLegacyInvoice(row)!),
-        meta: {
-          page,
-          limit,
-          total,
-          pages: Math.max(1, Math.ceil(total / limit)),
-        },
-      };
-    });
+        };
+      },
+      { timeout: 20_000 },
+    );
   }
 
   async findOne(auth: AuthContext, id: string) {

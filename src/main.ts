@@ -15,6 +15,33 @@ for (const name of ['.env', '.env.local'] as const) {
   }
 }
 
+/** Neon/pg idle drops should not take down the whole API process during demos. */
+function isTransientPgCrash(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err ?? '');
+  return (
+    /Connection terminated unexpectedly/i.test(msg) ||
+    /Connection terminated due to connection timeout/i.test(msg) ||
+    /Client network socket disconnected before secure TLS/i.test(msg) ||
+    /ECONNRESET/i.test(msg)
+  );
+}
+
+process.on('uncaughtException', (err) => {
+  if (isTransientPgCrash(err)) {
+    Logger.warn(`Ignoring transient PostgreSQL crash: ${err.message}`, 'Bootstrap');
+    return;
+  }
+  Logger.error(err.stack || err.message, undefined, 'Bootstrap');
+  process.exit(1);
+});
+process.on('unhandledRejection', (reason) => {
+  if (isTransientPgCrash(reason)) {
+    const msg = reason instanceof Error ? reason.message : String(reason);
+    Logger.warn(`Ignoring transient PostgreSQL rejection: ${msg}`, 'Bootstrap');
+    return;
+  }
+});
+
 function errnoOf(err: unknown): string | undefined {
   if (err && typeof err === 'object' && 'code' in err) {
     return String((err as NodeJS.ErrnoException).code);

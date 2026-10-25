@@ -89,6 +89,8 @@ let PatientsService = class PatientsService {
                 }),
                 tx.patient.count({ where }),
             ]);
+            return { items, total };
+        }, { timeout: 20_000 }).then(async ({ items, total }) => {
             const views = await this.toViews(auth, items);
             return {
                 items: views,

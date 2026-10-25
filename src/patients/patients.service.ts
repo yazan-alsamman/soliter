@@ -87,16 +87,21 @@ export class PatientsService {
           ]
         : undefined,
     });
-    return this.prisma.$transaction(async (tx) => {
-      const [items, total] = await Promise.all([
-        tx.patient.findMany({
-          where,
-          skip: (page - 1) * limit,
-          take: limit,
-          orderBy: { createdAt: 'desc' },
-        }),
-        tx.patient.count({ where }),
-      ]);
+    return this.prisma.$transaction(
+      async (tx) => {
+        const [items, total] = await Promise.all([
+          tx.patient.findMany({
+            where,
+            skip: (page - 1) * limit,
+            take: limit,
+            orderBy: { createdAt: 'desc' },
+          }),
+          tx.patient.count({ where }),
+        ]);
+        return { items, total };
+      },
+      { timeout: 20_000 },
+    ).then(async ({ items, total }) => {
       const views = await this.toViews(auth, items);
       return {
         items: views,
