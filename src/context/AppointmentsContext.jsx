@@ -11,15 +11,28 @@ const AppointmentsContext = createContext(null);
 const DEFAULT_NO_SHOW_DELAY_MINUTES = 25;
 const takeItems = (payload) => (Array.isArray(payload) ? payload : payload?.items || []);
 
-/** API defaults to 50 rows per page (max 100); seed/calendar need the full set. */
+/** API defaults to 50 rows per page (max 100). Load a rolling window only — full-tenant
+ *  history (thousands of seed rows) times out and leaves the calendar empty. */
 async function fetchAllAppointmentRows() {
   const limit = 100;
   const acc = [];
   let page = 1;
   let totalPages = 1;
-  const safetyMaxPages = 500;
+  const safetyMaxPages = 40;
+  const now = new Date();
+  const from = new Date(now);
+  from.setHours(0, 0, 0, 0);
+  from.setDate(from.getDate() - 14);
+  const to = new Date(now);
+  to.setHours(23, 59, 59, 999);
+  to.setDate(to.getDate() + 28);
   do {
-    const payload = await api.getAppointments({ page, limit });
+    const payload = await api.getAppointments({
+      page,
+      limit,
+      from: from.toISOString(),
+      to: to.toISOString(),
+    });
     acc.push(...takeItems(payload));
     totalPages = Math.max(1, Number(payload?.meta?.pages ?? 1) || 1);
     page += 1;
